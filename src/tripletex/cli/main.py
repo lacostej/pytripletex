@@ -13,7 +13,7 @@ from tripletex.config import load_config
 
 @click.group()
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Config file path")
-@click.option("--env", "env_name", default=None, help="Config section (e.g. bonita, aromar)")
+@click.option("--env", "env_name", default=None, help="Config section name (default: 'default')")
 @click.option("--cookie", envvar="TRIPLETEX_COOKIE", default=None, help="Browser cookie string")
 @click.option("--context-id", envvar="TRIPLETEX_CONTEXT_ID", default=None, help="Tripletex context ID")
 @click.option("--csrf-token", envvar="TRIPLETEX_CSRF_TOKEN", default=None, help="CSRF token")

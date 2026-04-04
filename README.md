@@ -20,43 +20,58 @@ uv pip install -e .
 
 ## Setup
 
-Create `~/.tripletex/config.toml`:
+Create `~/.tripletex/config.toml` with your Visma Connect credentials:
 
 ```toml
-[bonita]
+[default]
 username = "you@example.com"
 password_visma = "visma_connect_password"
+```
+
+Each section is a user account. If you have multiple logins, add named sections:
+
+```toml
+[default]
+username = "you@example.com"
+password_visma = "your_password"
+
+[other]
+username = "colleague@example.com"
+password_visma = "their_password"
 ```
 
 ## Usage
 
 ```bash
 # Login (interactive MFA prompt)
-tripletex --env bonita login
+tripletex login
 
-# List companies
-tripletex --env bonita companies
+# With a named section
+tripletex --env other login
+
+# List companies (one login can access multiple companies)
+tripletex companies
 
 # Payments awaiting approval
-tripletex --env bonita payments list
-tripletex --env bonita payments list --due-within 14 --company "My Company"
-tripletex --env bonita payments list --status ALL
+tripletex payments list
+tripletex payments list --due-within 14 --company "My Company"
+tripletex payments list --status ALL
 
 # Voucher inbox
-tripletex --env bonita inbox
+tripletex inbox
 
 # Bank reconciliation
-tripletex --env bonita reconciliation unreconciled --month 2026-03
-tripletex --env bonita reconciliation missing-receipts --month 2026-03
+tripletex reconciliation unreconciled --month 2026-03
+tripletex reconciliation missing-receipts --month 2026-03
 
 # Voucher backup
-tripletex --env bonita vouchers backup --output-dir ./backup --from 2025-01-01 --to 2025-12-31
+tripletex vouchers backup --output-dir ./backup --from 2025-01-01 --to 2025-12-31
 
 # Employee wages
-tripletex --env bonita wages dump -o wages.json
+tripletex wages dump -o wages.json
 ```
 
-You can also pass credentials via environment variables (`TRIPLETEX_USERNAME`, `TRIPLETEX_PASSWORD`, `TRIPLETEX_PASSWORD_VISMA`) or manual browser cookies (`--cookie`, `--context-id`, `--csrf-token`).
+You can also pass credentials via environment variables (`TRIPLETEX_USERNAME`, `TRIPLETEX_PASSWORD_VISMA`) or manual browser cookies (`--cookie`, `--context-id`, `--csrf-token`).
 
 ## Development
 
