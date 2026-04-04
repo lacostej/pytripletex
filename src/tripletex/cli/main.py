@@ -124,39 +124,6 @@ def reconciliation_unreconciled(ctx, month, company):
     run_async(_unreconciled())
 
 
-@reconciliation.command("missing-receipts")
-@click.option("--month", required=True, help="Month in YYYY-MM format")
-@click.option("--company", default=None, help="Filter to one company name")
-@click.pass_context
-def reconciliation_missing_receipts(ctx, month, company):
-    """List bank transactions with no matching voucher (missing receipts)."""
-    from datetime import date as date_cls
-    import calendar
-
-    from tripletex.client import TripletexClient
-    from tripletex.endpoints.reconciliation import get_unreconciled_transactions
-
-    async def _missing():
-        year, mon = map(int, month.split("-"))
-        start = date_cls(year, mon, 1)
-        end = date_cls(year, mon, calendar.monthrange(year, mon)[1])
-
-        async with TripletexClient(ctx.obj["config"]) as client:
-            async for comp, comp_client in client.iter_companies():
-                if company and company.lower() not in comp.display_name.lower():
-                    continue
-                results = await get_unreconciled_transactions(comp_client, start, end)
-                for account, txns in results:
-                    if not txns:
-                        continue
-                    click.echo(f"\nMissing receipts for {comp.display_name} — {account.iban or account.number}:")
-                    for t in txns:
-                        click.echo(
-                            f"  {t.posted_date}\t{t.amount_currency:>12}\t{t.details or t.description}"
-                        )
-
-    run_async(_missing())
-
 
 # --- Payments ---
 

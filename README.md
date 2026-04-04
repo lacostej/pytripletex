@@ -62,7 +62,6 @@ tripletex inbox
 
 # Bank reconciliation
 tripletex reconciliation unreconciled --month 2026-03
-tripletex reconciliation missing-receipts --month 2026-03
 
 # Voucher backup
 tripletex vouchers backup --output-dir ./backup --from 2025-01-01 --to 2025-12-31
