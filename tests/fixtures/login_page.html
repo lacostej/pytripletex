@@ -1,0 +1,19 @@
+<html>
+<head></head>
+<body>
+<script type="text/javascript">
+//<![CDATA[
+    window.CSRFToken = "abc123def456789012345678901234567890abcdef1234567890abcdef12345678";
+
+    try {
+        window.localStorage.setItem('CSRFToken', window.CSRFToken);
+    } catch (e) {}
+//]]>
+</script>
+<form action="/execute/login" method="post">
+  <input type="text" name="username" value="" />
+  <input type="password" name="password" value="" />
+  <input type="hidden" name="csrfToken" value="abc123def456789012345678901234567890abcdef1234567890abcdef12345678" />
+</form>
+</body>
+</html>
