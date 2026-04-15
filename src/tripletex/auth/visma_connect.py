@@ -7,12 +7,17 @@ The current flow (2026):
 4. Submit MFA code (POST /login/totp or similar)
 5. Follow redirects back to tripletex.no
 6. Extract contextId from final URL
+
+Supports two usage modes:
+- **CLI (one-shot):** `visma_connect_login(config)` — prompts for MFA on stdin
+- **Web (two-phase):** `start_login()` → `LoginState` → `complete_login(state, code)`
 """
 
 from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
@@ -26,6 +31,18 @@ if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
 
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/116.0"
+
+
+@dataclass
+class LoginState:
+    """Intermediate state between email/password and MFA submission."""
+
+    cookies: dict[str, str]
+    visma_base: str
+    mfa_form_action: str
+    mfa_form_data: dict[str, str]
+    mfa_field_name: str  # "AuthCode" or "Totp"
+    base_url: str  # Tripletex base URL, needed to complete login
 
 
 def _resolve_url(location: str, response_url: str) -> str:
@@ -55,11 +72,29 @@ def _get_forms(html: str) -> list[tuple[str, str, dict[str, str]]]:
     return forms
 
 
-async def visma_connect_login(
+def _cookies_to_dict(cookies: httpx.Cookies) -> dict[str, str]:
+    """Convert httpx.Cookies to a plain dict for serialization."""
+    return {name: cookies.get(name, "") for name in set(cookies.keys())}
+
+
+def _dict_to_cookies(d: dict[str, str]) -> httpx.Cookies:
+    """Convert a plain dict back to httpx.Cookies."""
+    cookies = httpx.Cookies()
+    for name, value in d.items():
+        cookies.set(name, value)
+    return cookies
+
+
+async def start_login(
     config: TripletexConfig,
     http: httpx.AsyncClient | None = None,
-) -> WebSession:
-    """Perform the full Visma Connect login flow."""
+) -> WebSession | LoginState:
+    """Run the email + password steps of Visma Connect login.
+
+    Returns:
+        WebSession — if no MFA is required (login complete)
+        LoginState — if MFA is required (call complete_login next)
+    """
     if not config.username:
         raise ValueError("username required for Visma Connect login")
     if not config.password_visma:
@@ -70,16 +105,89 @@ async def visma_connect_login(
         http = httpx.AsyncClient(timeout=30.0)
 
     try:
-        return await _do_login(config, http)
+        return await _do_login_phase1(config, http)
     finally:
         if own_client:
             await http.aclose()
 
 
-async def _do_login(
+async def complete_login(
+    state: LoginState,
+    mfa_code: str,
+    http: httpx.AsyncClient | None = None,
+) -> WebSession:
+    """Submit MFA code and complete the Visma Connect login.
+
+    Args:
+        state: LoginState returned by start_login
+        mfa_code: The 6-digit MFA code
+        http: Optional httpx client (created if not provided)
+
+    Returns:
+        WebSession ready for Tripletex API calls
+    """
+    own_client = http is None
+    if http is None:
+        http = httpx.AsyncClient(timeout=30.0)
+
+    try:
+        cookies = _dict_to_cookies(state.cookies)
+
+        # Submit MFA form
+        data = dict(state.mfa_form_data)
+        data[state.mfa_field_name] = mfa_code
+
+        form_url = _resolve_url(state.mfa_form_action, state.visma_base)
+        resp = await http.post(
+            form_url,
+            data=data,
+            headers={"User-Agent": _UA},
+            cookies=cookies,
+            follow_redirects=True,
+        )
+        _collect_cookies(cookies, resp)
+
+        return await _finish_login(resp, cookies, state.base_url, http)
+    finally:
+        if own_client:
+            await http.aclose()
+
+
+async def visma_connect_login(
+    config: TripletexConfig,
+    http: httpx.AsyncClient | None = None,
+) -> WebSession:
+    """Perform the full Visma Connect login flow (CLI — prompts for MFA on stdin)."""
+    if not config.username:
+        raise ValueError("username required for Visma Connect login")
+    if not config.password_visma:
+        raise ValueError("password_visma required for Visma Connect login")
+
+    own_client = http is None
+    if http is None:
+        http = httpx.AsyncClient(timeout=30.0)
+
+    try:
+        result = await _do_login_phase1(config, http)
+
+        if isinstance(result, WebSession):
+            return result
+
+        # MFA required — prompt on stdin (CLI mode)
+        print("Enter your 6-digit MFA code: ", end="", flush=True, file=sys.stderr)
+        auth_code = sys.stdin.readline().strip()
+
+        return await complete_login(result, auth_code, http)
+    finally:
+        if own_client:
+            await http.aclose()
+
+
+async def _do_login_phase1(
     config: TripletexConfig,
     http: httpx.AsyncClient,
-) -> WebSession:
+) -> WebSession | LoginState:
+    """Email + password steps. Returns WebSession or LoginState (if MFA needed)."""
     # Step 1: Follow redirect chain from Tripletex to Visma Connect login page
     url = f"{config.base_url}/execute/login"
     cookies = httpx.Cookies()
@@ -113,7 +221,6 @@ async def _do_login(
     forms = _get_forms(resp.text)
     password_form = _find_form_with_field(forms, "Password")
     if not password_form:
-        # Maybe we got redirected — check for other patterns
         raise RuntimeError(
             f"Could not find password form. Page URL: {resp.url}\n"
             f"Forms found: {[(a, list(d.keys())) for a, _, d in forms]}"
@@ -140,26 +247,28 @@ async def _do_login(
 
     if mfa_form:
         action, _, data = mfa_form
-        print("Enter your 6-digit MFA code: ", end="", flush=True, file=sys.stderr)
-        auth_code = sys.stdin.readline().strip()
-
-        if "AuthCode" in data:
-            data["AuthCode"] = auth_code
-        elif "Totp" in data:
-            data["Totp"] = auth_code
-
-        form_url = _resolve_url(action, visma_base)
-        resp = await http.post(
-            form_url,
-            data=data,
-            headers={"User-Agent": _UA},
-            cookies=cookies,
-            follow_redirects=True,
+        mfa_field = "AuthCode" if "AuthCode" in data else "Totp"
+        return LoginState(
+            cookies=_cookies_to_dict(cookies),
+            visma_base=visma_base,
+            mfa_form_action=action,
+            mfa_form_data=data,
+            mfa_field_name=mfa_field,
+            base_url=config.base_url,
         )
-        _collect_cookies(cookies, resp)
 
-    # Step 5: We should now be back on tripletex.no (or need to follow more redirects)
-    # Check for JS-based redirects or further HTML redirects
+    # No MFA — finish login directly
+    return await _finish_login(resp, cookies, config.base_url, http)
+
+
+async def _finish_login(
+    resp: httpx.Response,
+    cookies: httpx.Cookies,
+    base_url: str,
+    http: httpx.AsyncClient,
+) -> WebSession:
+    """Follow post-auth redirects, extract contextId and CSRF token."""
+    # Step 5: Follow redirects back to tripletex.no
     final_url = str(resp.url)
     max_redirects = 10
 
@@ -217,7 +326,7 @@ async def _do_login(
     if not csrf_token:
         # Try loading the viewer page to get CSRF
         viewer_resp = await http.get(
-            f"{config.base_url}/execute/viewer",
+            f"{base_url}/execute/viewer",
             params={"contextId": context_id},
             headers={"User-Agent": _UA},
             cookies=cookies,
