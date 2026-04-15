@@ -6,3 +6,5 @@ dist/
 build/
 .pytest_cache/
 .coverage
+tests/live_test.sh
+docs/TODO.md

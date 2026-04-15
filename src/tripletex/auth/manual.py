@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import httpx
 
-from tripletex.session import TripletexSession
+from tripletex.session import WebSession
 
 
 def create_manual_session(
     cookie: str,
     context_id: str,
     csrf_token: str,
-) -> TripletexSession:
+) -> WebSession:
     """Create a session from manually-provided browser cookies.
 
     Args:
@@ -26,7 +26,7 @@ def create_manual_session(
             name, _, value = part.partition("=")
             cookies.set(name.strip(), value.strip())
 
-    return TripletexSession(
+    return WebSession(
         cookies=cookies,
         csrf_token=csrf_token,
         context_id=context_id,

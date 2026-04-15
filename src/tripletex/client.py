@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,26 +9,38 @@ from typing import Any
 
 import httpx
 
-from tripletex.auth.manual import create_manual_session
 from tripletex.config import TripletexConfig
 from tripletex.models import Company
-from tripletex.session import TripletexSession
+from tripletex.session import ApiSession, Session, WebSession
 
 
 class TripletexClient:
     """Main entry point for Tripletex interactions.
 
-    Wraps httpx.AsyncClient with session management, auto-refresh,
-    and multi-company support.
+    Use factory methods to create clients with explicit auth:
+        TripletexClient.web(config)  — web session (Visma Connect)
+        TripletexClient.api(config)  — official API (token-based)
+        TripletexClient(config)      — auto-detect based on config
     """
 
-    def __init__(self, config: TripletexConfig) -> None:
+    def __init__(self, config: TripletexConfig, *, auth_mode: str | None = None) -> None:
         self.config = config
-        self._session: TripletexSession | None = None
+        self._auth_mode = auth_mode  # "web", "api", or None (auto-detect)
+        self._session: Session | None = None
         self._http: httpx.AsyncClient | None = None
 
+    @classmethod
+    def web(cls, config: TripletexConfig) -> TripletexClient:
+        """Create a client that uses web session auth (Visma Connect)."""
+        return cls(config, auth_mode="web")
+
+    @classmethod
+    def api(cls, config: TripletexConfig) -> TripletexClient:
+        """Create a client that uses official API token auth."""
+        return cls(config, auth_mode="api")
+
     @property
-    def session(self) -> TripletexSession:
+    def session(self) -> Session:
         if self._session is None:
             raise RuntimeError("Not authenticated. Call authenticate() first.")
         return self._session
@@ -45,14 +56,38 @@ class TripletexClient:
         return self._http
 
     async def authenticate(self) -> None:
-        """Authenticate using available credentials.
+        """Authenticate using the configured auth mode."""
+        mode = self._auth_mode or self._detect_auth_mode()
 
-        Tries in order:
-        1. Manual cookie/csrf/context-id if all three are provided
-        2. Persisted session from disk
-        3. Visma Connect login (interactive)
-        """
+        if mode == "api":
+            await self._authenticate_api()
+        else:
+            await self._authenticate_web()
+
+    def _detect_auth_mode(self) -> str:
+        """Auto-detect: use API if tokens are configured, otherwise web."""
+        if self.config.consumer_token and self.config.employee_token:
+            return "api"
+        return "web"
+
+    async def _authenticate_api(self) -> None:
+        """Authenticate via official API tokens."""
+        from tripletex.auth.api_token import create_api_session
+
+        if not self.config.consumer_token or not self.config.employee_token:
+            raise ValueError("consumer_token and employee_token required for API auth")
+
+        self._session = await create_api_session(
+            base_url=self.config.base_url,
+            consumer_token=self.config.consumer_token,
+            employee_token=self.config.employee_token,
+        )
+
+    async def _authenticate_web(self) -> None:
+        """Authenticate via web session (manual cookies or Visma Connect)."""
         if self.config.cookie and self.config.csrf_token and self.config.context_id:
+            from tripletex.auth.manual import create_manual_session
+
             self._session = create_manual_session(
                 cookie=self.config.cookie,
                 csrf_token=self.config.csrf_token,
@@ -62,10 +97,10 @@ class TripletexClient:
 
         # Try loading persisted session
         session_path = self._session_path()
-        session = TripletexSession.load(session_path)
+        session = WebSession.load(session_path)
         if session is not None:
             self._session = session
-            if await self._validate_session():
+            if await self._validate_web_session():
                 return
 
         # Fall back to Visma Connect login
@@ -74,8 +109,8 @@ class TripletexClient:
         self._session = await visma_connect_login(self.config, self.http)
         self._session.save(session_path)
 
-    async def _validate_session(self) -> bool:
-        """Check if current session is still valid via company-chooser."""
+    async def _validate_web_session(self) -> bool:
+        """Check if current web session is still valid."""
         try:
             result = await self.get_json("/v2/internal/company-chooser")
             return result.get("status") != 401
@@ -86,19 +121,43 @@ class TripletexClient:
         """Ensure we have a valid session, re-authenticating if needed."""
         if self._session is None:
             await self.authenticate()
-            return
-        if not await self._validate_session():
-            await self.authenticate()
+
+    # --- HTTP methods ---
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: Any = None,
+        for_json: bool = True,
+    ) -> httpx.Response:
+        """Make an authenticated request."""
+        headers = self.session.request_headers(for_json=for_json)
+        if method in ("POST", "PUT") and for_json:
+            headers["Content-Type"] = "application/json"
+            if isinstance(self.session, WebSession):
+                headers["Origin"] = self.config.base_url
+
+        kwargs: dict[str, Any] = {
+            "headers": headers,
+        }
+        if self.session.request_cookies() is not None:
+            kwargs["cookies"] = self.session.request_cookies()
+        if self.session.request_auth() is not None:
+            kwargs["auth"] = self.session.request_auth()
+        if params is not None:
+            kwargs["params"] = params
+        if json_body is not None:
+            kwargs["json"] = json_body
+
+        response = await self.http.request(method, path, **kwargs)
+        response.raise_for_status()
+        return response
 
     async def get_json(self, path: str, params: dict[str, Any] | None = None) -> dict:
-        """GET a JSON endpoint on tripletex.no."""
-        response = await self.http.get(
-            path,
-            params=params,
-            headers=self.session.request_headers(for_json=True),
-            cookies=self.session.cookies,
-        )
-        response.raise_for_status()
+        """GET a JSON endpoint."""
+        response = await self._request("GET", path, params=params)
         return response.json()
 
     async def post_json(
@@ -107,29 +166,30 @@ class TripletexClient:
         params: dict[str, Any] | None = None,
         json_body: Any = None,
     ) -> dict:
-        """POST a JSON endpoint on tripletex.no."""
-        headers = self.session.request_headers(for_json=True)
-        headers["Content-Type"] = "application/json"
-        headers["Origin"] = self.config.base_url
-        response = await self.http.post(
-            path,
-            params=params,
-            json=json_body,
-            headers=headers,
-            cookies=self.session.cookies,
-        )
-        response.raise_for_status()
+        """POST a JSON endpoint."""
+        response = await self._request("POST", path, params=params, json_body=json_body)
         return response.json()
+
+    async def put_json(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: Any = None,
+    ) -> dict:
+        """PUT a JSON endpoint."""
+        response = await self._request("PUT", path, params=params, json_body=json_body)
+        return response.json()
+
+    async def delete_json(self, path: str, params: dict[str, Any] | None = None) -> dict | None:
+        """DELETE a JSON endpoint."""
+        response = await self._request("DELETE", path, params=params)
+        if response.content:
+            return response.json()
+        return None
 
     async def get_html(self, path: str, params: dict[str, Any] | None = None) -> str:
         """GET an HTML endpoint (/execute/*)."""
-        response = await self.http.get(
-            path,
-            params=params,
-            headers=self.session.request_headers(for_json=False),
-            cookies=self.session.cookies,
-        )
-        response.raise_for_status()
+        response = await self._request("GET", path, params=params, for_json=False)
         return response.text
 
     async def download(
@@ -140,21 +200,25 @@ class TripletexClient:
     ) -> Path:
         """Download binary content (PDF/image) to a file."""
         dest.parent.mkdir(parents=True, exist_ok=True)
-        async with self.http.stream(
-            "GET",
-            path,
-            params=params,
-            headers=self.session.request_headers(for_json=False),
-            cookies=self.session.cookies,
-        ) as response:
+
+        headers = self.session.request_headers(for_json=False)
+        kwargs: dict[str, Any] = {"headers": headers}
+        if self.session.request_cookies() is not None:
+            kwargs["cookies"] = self.session.request_cookies()
+        if self.session.request_auth() is not None:
+            kwargs["auth"] = self.session.request_auth()
+
+        async with self.http.stream("GET", path, params=params, **kwargs) as response:
             response.raise_for_status()
             with open(dest, "wb") as f:
                 async for chunk in response.aiter_bytes():
                     f.write(chunk)
         return dest
 
+    # --- Multi-company (web session only) ---
+
     async def list_companies(self) -> list[Company]:
-        """List all accessible companies."""
+        """List all accessible companies (web session only)."""
         from tripletex.endpoints.companies import list_companies
 
         return await list_companies(self)
@@ -162,12 +226,15 @@ class TripletexClient:
     @asynccontextmanager
     async def company_context(self, company: Company) -> AsyncIterator[TripletexClient]:
         """Context manager that temporarily switches to a different company."""
-        original_context_id = self.session.context_id
-        self.session.context_id = str(company.id)
+        session = self.session
+        if not isinstance(session, WebSession):
+            raise RuntimeError("company_context requires web session auth")
+        original_context_id = session.context_id
+        session.context_id = str(company.id)
         try:
             yield self
         finally:
-            self.session.context_id = original_context_id
+            session.context_id = original_context_id
 
     async def iter_companies(self) -> AsyncIterator[tuple[Company, TripletexClient]]:
         """Iterate over all companies, yielding (company, client) pairs."""
@@ -176,8 +243,9 @@ class TripletexClient:
             async with self.company_context(company) as client:
                 yield company, client
 
+    # --- Lifecycle ---
+
     async def close(self) -> None:
-        """Close the HTTP client."""
         if self._http is not None:
             await self._http.aclose()
             self._http = None

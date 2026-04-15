@@ -20,7 +20,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tripletex.parsers.js import extract_csrf_token, extract_js_redirect_url
-from tripletex.session import TripletexSession
+from tripletex.session import WebSession
 
 if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
@@ -58,7 +58,7 @@ def _get_forms(html: str) -> list[tuple[str, str, dict[str, str]]]:
 async def visma_connect_login(
     config: TripletexConfig,
     http: httpx.AsyncClient | None = None,
-) -> TripletexSession:
+) -> WebSession:
     """Perform the full Visma Connect login flow."""
     if not config.username:
         raise ValueError("username required for Visma Connect login")
@@ -79,7 +79,7 @@ async def visma_connect_login(
 async def _do_login(
     config: TripletexConfig,
     http: httpx.AsyncClient,
-) -> TripletexSession:
+) -> WebSession:
     # Step 1: Follow redirect chain from Tripletex to Visma Connect login page
     url = f"{config.base_url}/execute/login"
     cookies = httpx.Cookies()
@@ -232,7 +232,7 @@ async def _do_login(
     if not csrf_token:
         raise RuntimeError("Could not extract CSRF token after login")
 
-    return TripletexSession(
+    return WebSession(
         cookies=cookies,
         csrf_token=csrf_token,
         context_id=context_id,

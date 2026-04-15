@@ -19,6 +19,10 @@ class TripletexConfig(BaseModel):
     username: str | None = None
     password_visma: str | None = None
 
+    # Official API auth tokens
+    consumer_token: str | None = None
+    employee_token: str | None = None
+
     # Manual session overrides (skip login, use browser cookies)
     cookie: str | None = None
     csrf_token: str | None = None
@@ -60,6 +64,8 @@ def load_config(
     env_map = {
         "TRIPLETEX_USERNAME": "username",
         "TRIPLETEX_PASSWORD_VISMA": "password_visma",
+        "TRIPLETEX_CONSUMER_TOKEN": "consumer_token",
+        "TRIPLETEX_EMPLOYEE_TOKEN": "employee_token",
         "TRIPLETEX_COOKIE": "cookie",
         "TRIPLETEX_CSRF_TOKEN": "csrf_token",
         "TRIPLETEX_CONTEXT_ID": "context_id",
