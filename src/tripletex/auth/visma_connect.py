@@ -268,12 +268,15 @@ async def _finish_login(
     http: httpx.AsyncClient,
 ) -> WebSession:
     """Follow post-auth redirects, extract contextId and CSRF token."""
-    # Step 5: Follow redirects back to tripletex.no
+    # Step 5: Follow redirects back to Tripletex
     final_url = str(resp.url)
     max_redirects = 10
 
+    # Match against configured base URL domain (supports test envs like tripletex.is)
+    base_domain = urlparse(base_url).netloc
+
     for _ in range(max_redirects):
-        if "tripletex.no" in final_url and "contextId" in final_url:
+        if base_domain in final_url and "contextId" in final_url:
             break
 
         # Check for JS redirect
