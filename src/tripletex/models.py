@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 class Company(BaseModel):
     id: int
     display_name: str = Field(alias="displayName")
+    # Populated by get_company() — not returned by the company chooser endpoint.
+    organization_number: Optional[str] = Field(default=None, alias="organizationNumber")
 
     model_config = {"populate_by_name": True}
 
