@@ -317,8 +317,28 @@ async def _finish_login(
     if not context_match:
         context_match = re.search(r"contextId=(\d+)", resp.text)
     if not context_match:
+        # Detect common failure: bounced back to Visma login/password page
+        parsed_final = urlparse(final_url)
+        if "connect.visma.com" in parsed_final.netloc and parsed_final.path in (
+            "/password",
+            "/login/password",
+            "/",
+            "/login",
+        ):
+            raise RuntimeError(
+                "MFA verification failed — ended up back on Visma login page "
+                f"({final_url}). The code may have been wrong or expired, "
+                "or the account requires a different authentication step."
+            )
+        # General failure — include forms found for diagnostics
+        diag_forms = _get_forms(resp.text)
+        form_summary = [
+            {"action": a, "method": m, "fields": list(d.keys())}
+            for a, m, d in diag_forms
+        ]
         raise RuntimeError(
             f"Could not extract contextId. Final URL: {final_url}\n"
+            f"Forms on page: {form_summary}\n"
             f"Response snippet: {resp.text[:500]}"
         )
 
