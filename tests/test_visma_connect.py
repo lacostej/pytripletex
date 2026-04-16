@@ -122,7 +122,8 @@ async def test_start_login_returns_session_when_no_mfa():
 
     assert isinstance(result, WebSession)
     assert result.context_id == "12345"
-    assert result.csrf_token == "abc123def456"
+    headers = result.request_headers(f"{BASE_URL}/execute/viewer")
+    assert headers["x-tlx-csrf-token"] == "abc123def456"
 
 
 @respx.mock
@@ -152,7 +153,8 @@ async def test_complete_login_submits_mfa():
 
     assert isinstance(session, WebSession)
     assert session.context_id == "12345"
-    assert session.csrf_token == "abc123def456"
+    headers = session.request_headers(f"{BASE_URL}/execute/viewer")
+    assert headers["x-tlx-csrf-token"] == "abc123def456"
 
 
 def test_cookie_for_url_picks_the_domain_scoped_cookie():
@@ -180,7 +182,7 @@ def test_websession_roundtrip_preserves_domain_scoped_cookies(tmp_path):
     cookies.set("CSRFTokenWriteOnly", "tlx-value", domain="tripletex.no", path="/")
     cookies.set("CSRFTokenWriteOnly", "visma-value", domain="connect.visma.com", path="/")
 
-    session = WebSession(cookies=cookies, csrf_token="csrf", context_id="12345")
+    session = WebSession(cookies=cookies, context_id="12345")
     path = tmp_path / "session.json"
     session.save(path)
     loaded = WebSession.load(path)

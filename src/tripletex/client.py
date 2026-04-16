@@ -92,6 +92,7 @@ class TripletexClient:
                 cookie=self.config.cookie,
                 csrf_token=self.config.csrf_token,
                 context_id=self.config.context_id,
+                base_url=self.config.base_url,
             )
             return
 
@@ -133,7 +134,8 @@ class TripletexClient:
         for_json: bool = True,
     ) -> httpx.Response:
         """Make an authenticated request."""
-        headers = self.session.request_headers(for_json=for_json)
+        url = httpx.URL(path) if path.startswith("http") else self.http.base_url.join(path)
+        headers = self.session.request_headers(str(url), for_json=for_json)
         if method in ("POST", "PUT") and for_json:
             headers["Content-Type"] = "application/json"
             if isinstance(self.session, WebSession):
@@ -201,7 +203,8 @@ class TripletexClient:
         """Download binary content (PDF/image) to a file."""
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        headers = self.session.request_headers(for_json=False)
+        url = httpx.URL(path) if path.startswith("http") else self.http.base_url.join(path)
+        headers = self.session.request_headers(str(url), for_json=False)
         kwargs: dict[str, Any] = {"headers": headers}
         if self.session.request_cookies() is not None:
             kwargs["cookies"] = self.session.request_cookies()

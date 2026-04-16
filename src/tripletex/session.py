@@ -14,30 +14,38 @@ import httpx
 class Session(Protocol):
     """Protocol for Tripletex session auth — implemented by WebSession and ApiSession."""
 
-    def request_headers(self, *, for_json: bool = True) -> dict[str, str]: ...
+    def request_headers(self, url: str, *, for_json: bool = True) -> dict[str, str]: ...
     def request_cookies(self) -> httpx.Cookies | None: ...
     def request_auth(self) -> httpx.Auth | None: ...
 
 
 class WebSession:
-    """Web session using cookies, CSRF token, and context ID."""
+    """Web session using cookies and context ID.
+
+    The CSRF token lives in the cookie jar (``CSRFTokenWriteOnly``) and is
+    pulled fresh per request by ``request_headers(url)``. This way the
+    ``x-tlx-csrf-token`` header always matches what the server last set —
+    no stale snapshot if the server rotates the token mid-session.
+    """
 
     def __init__(
         self,
         cookies: httpx.Cookies,
-        csrf_token: str,
         context_id: str,
     ) -> None:
         self.cookies = cookies
-        self.csrf_token = csrf_token
         self.context_id = context_id
 
-    def request_headers(self, *, for_json: bool = True) -> dict[str, str]:
+    def request_headers(self, url: str, *, for_json: bool = True) -> dict[str, str]:
+        # Import here to avoid a circular import (auth.visma_connect imports
+        # from session for WebSession).
+        from tripletex.auth.visma_connect import _cookie_for_url
+        csrf = _cookie_for_url(self.cookies, url, "CSRFTokenWriteOnly")
         headers: dict[str, str] = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/116.0",
             "Accept-Language": "en-US,en;q=0.5",
             "x-tlx-context-id": self.context_id,
-            "x-tlx-csrf-token": self.csrf_token,
+            "x-tlx-csrf-token": csrf,
         }
         if for_json:
             headers["Accept"] = "application/json; charset=utf-8"
@@ -62,7 +70,6 @@ class WebSession:
         ).decode("ascii")
         data = {
             "type": "web",
-            "csrf_token": self.csrf_token,
             "context_id": self.context_id,
             "cookies": cookies_blob,
         }
@@ -84,7 +91,6 @@ class WebSession:
                 cookies.jar.set_cookie(cookie)
             return cls(
                 cookies=cookies,
-                csrf_token=data["csrf_token"],
                 context_id=data["context_id"],
             )
         except (json.JSONDecodeError, KeyError, pickle.UnpicklingError, ValueError):
@@ -98,7 +104,8 @@ class ApiSession:
         self.session_token = session_token
         self.company_id = company_id
 
-    def request_headers(self, *, for_json: bool = True) -> dict[str, str]:
+    def request_headers(self, url: str, *, for_json: bool = True) -> dict[str, str]:
+        # url unused — API session uses Basic auth, no CSRF.
         headers: dict[str, str] = {
             "Content-Type": "application/json",
         }

@@ -336,10 +336,19 @@ async def _finish_login(
 
     context_id = context_match.group(1)
 
-    # Step 7: Get CSRF token from the dashboard/viewer page
-    csrf_token = extract_csrf_token(resp.text)
+    # Step 7: Make sure the CSRF token is in the cookie jar, scoped to the
+    # Tripletex base URL domain. request_headers() will pull it from the jar
+    # per-request, so the jar is the source of truth.
+    #
+    # The cookie is normally set by Tripletex via Set-Cookie during the login
+    # redirect chain. If for some reason it isn't (or we only have it from the
+    # JS `window.CSRFToken = "..."` in the page), extract it from HTML and
+    # stuff it into the jar so the rest of the client works consistently.
+    tripletex_domain = urlparse(base_url).netloc
+    csrf_token = _cookie_for_url(cookies, base_url, "CSRFTokenWriteOnly")
     if not csrf_token:
-        # Try loading the viewer page to get CSRF
+        csrf_token = extract_csrf_token(resp.text)
+    if not csrf_token:
         viewer_resp = await http.get(
             f"{base_url}/execute/viewer",
             params={"contextId": context_id},
@@ -347,23 +356,19 @@ async def _finish_login(
             cookies=cookies,
         )
         _collect_cookies(cookies, viewer_resp)
-        csrf_token = extract_csrf_token(viewer_resp.text)
-
-    if not csrf_token:
-        # Fallback: ask the jar which cookies it would send on a request to
-        # the Tripletex base URL — this applies domain/path matching, so we
-        # get the CSRFTokenWriteOnly scoped to tripletex.* and not any
-        # same-named cookie set by connect.visma.com during the redirect
-        # chain. Can't use ``cookies.get(name)`` because that raises
-        # CookieConflict when multiple cookies share a name.
         csrf_token = _cookie_for_url(cookies, base_url, "CSRFTokenWriteOnly")
+        if not csrf_token:
+            csrf_token = extract_csrf_token(viewer_resp.text)
 
     if not csrf_token:
         raise RuntimeError("Could not extract CSRF token after login")
 
+    # Ensure the jar has it (in case it only came from HTML).
+    if not _cookie_for_url(cookies, base_url, "CSRFTokenWriteOnly"):
+        cookies.set("CSRFTokenWriteOnly", csrf_token, domain=tripletex_domain, path="/")
+
     return WebSession(
         cookies=cookies,
-        csrf_token=csrf_token,
         context_id=context_id,
     )
 
