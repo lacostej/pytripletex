@@ -6,8 +6,7 @@ import respx
 
 from tripletex.auth.visma_connect import (
     LoginState,
-    _cookies_to_dict,
-    _dict_to_cookies,
+    _cookie_for_url,
     complete_login,
     start_login,
 )
@@ -95,7 +94,7 @@ async def test_start_login_returns_login_state_when_mfa_required():
     assert result.mfa_field_name == "Totp"
     assert result.mfa_form_action == "/login/totp"
     assert result.base_url == BASE_URL
-    assert isinstance(result.cookies, dict)
+    assert isinstance(result.cookies, httpx.Cookies)
 
 
 @respx.mock
@@ -129,8 +128,10 @@ async def test_start_login_returns_session_when_no_mfa():
 @respx.mock
 async def test_complete_login_submits_mfa():
     """complete_login should submit MFA and return WebSession."""
+    cookies = httpx.Cookies()
+    cookies.set("session", "abc", domain="connect.visma.com", path="/")
     state = LoginState(
-        cookies={"session": "abc"},
+        cookies=cookies,
         visma_base=f"{VISMA_URL}/",
         mfa_form_action="/login/totp",
         mfa_form_data={"Totp": "", "__RequestVerificationToken": "tok789"},
@@ -154,13 +155,38 @@ async def test_complete_login_submits_mfa():
     assert session.csrf_token == "abc123def456"
 
 
-def test_cookies_roundtrip():
-    """Cookie dict conversion should roundtrip correctly."""
+def test_cookie_for_url_picks_the_domain_scoped_cookie():
+    """When multiple cookies share a name across domains, _cookie_for_url
+    should return the one scoped to the requested URL's domain."""
     cookies = httpx.Cookies()
-    cookies.set("a", "1")
-    cookies.set("b", "2")
-    d = _cookies_to_dict(cookies)
-    assert d == {"a": "1", "b": "2"}
-    restored = _dict_to_cookies(d)
-    assert restored.get("a") == "1"
-    assert restored.get("b") == "2"
+    cookies.set("CSRFTokenWriteOnly", "tripletex-value", domain="tripletex.no", path="/")
+    cookies.set("CSRFTokenWriteOnly", "visma-value", domain="connect.visma.com", path="/")
+
+    assert _cookie_for_url(cookies, "https://tripletex.no/execute/viewer", "CSRFTokenWriteOnly") == "tripletex-value"
+    assert _cookie_for_url(cookies, "https://connect.visma.com/anything", "CSRFTokenWriteOnly") == "visma-value"
+
+
+def test_cookie_for_url_returns_empty_when_no_match():
+    cookies = httpx.Cookies()
+    cookies.set("JSESSIONID", "abc", domain="tripletex.no", path="/")
+    assert _cookie_for_url(cookies, "https://tripletex.no/", "Missing") == ""
+
+
+def test_websession_roundtrip_preserves_domain_scoped_cookies(tmp_path):
+    """WebSession.save/load should round-trip cookies without collapsing
+    same-named cookies set on different domains (regression: CookieConflict
+    when multiple CSRFTokenWriteOnly cookies coexist)."""
+    cookies = httpx.Cookies()
+    cookies.set("CSRFTokenWriteOnly", "tlx-value", domain="tripletex.no", path="/")
+    cookies.set("CSRFTokenWriteOnly", "visma-value", domain="connect.visma.com", path="/")
+
+    session = WebSession(cookies=cookies, csrf_token="csrf", context_id="12345")
+    path = tmp_path / "session.json"
+    session.save(path)
+    loaded = WebSession.load(path)
+
+    assert loaded is not None
+    values = sorted(
+        c.value for c in loaded.cookies.jar if c.name == "CSRFTokenWriteOnly"
+    )
+    assert values == ["tlx-value", "visma-value"]

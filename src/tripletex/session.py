@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import pickle
 from pathlib import Path
 from typing import Protocol
 
@@ -53,11 +54,17 @@ class WebSession:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Pickle a list of http.cookiejar.Cookie objects — they serialize
+        # cleanly (domain, path, secure, expires, ...). We don't pickle the
+        # CookieJar itself because it holds a non-picklable RLock.
+        cookies_blob = base64.b64encode(
+            pickle.dumps(list(self.cookies.jar))
+        ).decode("ascii")
         data = {
             "type": "web",
             "csrf_token": self.csrf_token,
             "context_id": self.context_id,
-            "cookies": dict(self.cookies),
+            "cookies": cookies_blob,
         }
         path.write_text(json.dumps(data, indent=2))
 
@@ -69,15 +76,18 @@ class WebSession:
             data = json.loads(path.read_text())
             if data.get("type", "web") != "web":
                 return None
+            cookies_data = data.get("cookies")
+            if not isinstance(cookies_data, str):
+                return None
             cookies = httpx.Cookies()
-            for name, value in data.get("cookies", {}).items():
-                cookies.set(name, value)
+            for cookie in pickle.loads(base64.b64decode(cookies_data)):
+                cookies.jar.set_cookie(cookie)
             return cls(
                 cookies=cookies,
                 csrf_token=data["csrf_token"],
                 context_id=data["context_id"],
             )
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, pickle.UnpicklingError, ValueError):
             return None
 
 

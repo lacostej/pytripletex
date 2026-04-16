@@ -20,6 +20,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
+from urllib.request import Request
 
 import httpx
 from bs4 import BeautifulSoup
@@ -35,9 +36,13 @@ _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Fi
 
 @dataclass
 class LoginState:
-    """Intermediate state between email/password and MFA submission."""
+    """Intermediate state between email/password and MFA submission.
 
-    cookies: dict[str, str]
+    In-memory only — not serialized. ``cookies`` is the live httpx jar so
+    domain/path scoping is preserved across the MFA submission.
+    """
+
+    cookies: httpx.Cookies
     visma_base: str
     mfa_form_action: str
     mfa_form_data: dict[str, str]
@@ -70,19 +75,6 @@ def _get_forms(html: str) -> list[tuple[str, str, dict[str, str]]]:
                 data[name] = inp.get("value", "")
         forms.append((action, method, data))
     return forms
-
-
-def _cookies_to_dict(cookies: httpx.Cookies) -> dict[str, str]:
-    """Convert httpx.Cookies to a plain dict for serialization."""
-    return {name: cookies.get(name, "") for name in set(cookies.keys())}
-
-
-def _dict_to_cookies(d: dict[str, str]) -> httpx.Cookies:
-    """Convert a plain dict back to httpx.Cookies."""
-    cookies = httpx.Cookies()
-    for name, value in d.items():
-        cookies.set(name, value)
-    return cookies
 
 
 async def start_login(
@@ -131,7 +123,7 @@ async def complete_login(
         http = httpx.AsyncClient(timeout=30.0)
 
     try:
-        cookies = _dict_to_cookies(state.cookies)
+        cookies = state.cookies
 
         # Submit MFA form
         data = dict(state.mfa_form_data)
@@ -249,7 +241,7 @@ async def _do_login_phase1(
         action, _, data = mfa_form
         mfa_field = "AuthCode" if "AuthCode" in data else "Totp"
         return LoginState(
-            cookies=_cookies_to_dict(cookies),
+            cookies=cookies,
             visma_base=visma_base,
             mfa_form_action=action,
             mfa_form_data=data,
@@ -358,8 +350,13 @@ async def _finish_login(
         csrf_token = extract_csrf_token(viewer_resp.text)
 
     if not csrf_token:
-        # Try the CSRFTokenWriteOnly cookie as fallback
-        csrf_token = cookies.get("CSRFTokenWriteOnly", "")
+        # Fallback: ask the jar which cookies it would send on a request to
+        # the Tripletex base URL — this applies domain/path matching, so we
+        # get the CSRFTokenWriteOnly scoped to tripletex.* and not any
+        # same-named cookie set by connect.visma.com during the redirect
+        # chain. Can't use ``cookies.get(name)`` because that raises
+        # CookieConflict when multiple cookies share a name.
+        csrf_token = _cookie_for_url(cookies, base_url, "CSRFTokenWriteOnly")
 
     if not csrf_token:
         raise RuntimeError("Could not extract CSRF token after login")
@@ -411,6 +408,20 @@ def _is_login_form(data: dict[str, str]) -> bool:
     """Check if a form looks like a login form (has username/password fields)."""
     login_fields = {"Username", "Password", "AuthCode", "Totp"}
     return bool(login_fields & set(data.keys()))
+
+
+def _cookie_for_url(cookies: httpx.Cookies, url: str, name: str) -> str:
+    """Return the value of ``name`` that the jar would send on a request to
+    ``url``. Applies proper domain/path/secure matching via ``http.cookiejar``.
+    """
+    req = Request(url)
+    cookies.jar.add_cookie_header(req)
+    header = req.get_header("Cookie", "")
+    for pair in header.split("; "):
+        key, _, value = pair.partition("=")
+        if key == name:
+            return value
+    return ""
 
 
 def _collect_cookies(jar: httpx.Cookies, response: httpx.Response) -> None:
