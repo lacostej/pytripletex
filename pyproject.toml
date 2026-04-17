@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tripletex"
-version = "0.2.1"
+dynamic = ["version"]
 description = "Python client for Tripletex accounting (web scraping + internal APIs)"
 requires-python = ">=3.11"
 dependencies = [
@@ -25,6 +25,9 @@ dev = [
 
 [project.scripts]
 tripletex = "tripletex.cli.main:cli"
+
+[tool.hatch.version]
+path = "src/tripletex/__about__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tripletex"]
