@@ -171,6 +171,7 @@ class OrderLine(BaseModel):
 class Order(BaseModel):
     id: Optional[int] = None
     number: Optional[str] = None
+    reference: Optional[str] = None
     customer: Optional[dict] = None
     order_date: Optional[datetime.date] = Field(default=None, alias="orderDate")
     delivery_date: Optional[datetime.date] = Field(default=None, alias="deliveryDate")
@@ -179,6 +180,13 @@ class Order(BaseModel):
     is_closed: bool = Field(default=False, alias="isClosed")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def customer_name(self) -> str:
+        """Customer name, if the nested customer object was expanded."""
+        if self.customer:
+            return self.customer.get("name") or self.customer.get("displayName") or ""
+        return ""
 
 
 # --- Invoices (API) ---
@@ -190,9 +198,19 @@ class Invoice(BaseModel):
     order: Optional[dict] = None
     customer: Optional[dict] = None
     invoice_date: Optional[datetime.date] = Field(default=None, alias="invoiceDate")
-    due_date: Optional[datetime.date] = Field(default=None, alias="dueDate")
+    due_date: Optional[datetime.date] = Field(default=None, alias="invoiceDueDate")
     amount: Optional[Decimal] = None
     amount_currency: Optional[Decimal] = Field(default=None, alias="amountCurrency")
+    amount_outstanding: Optional[Decimal] = Field(
+        default=None, alias="amountCurrencyOutstanding"
+    )
     is_credit_note: bool = Field(default=False, alias="isCreditNote")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def customer_name(self) -> str:
+        """Customer name, if the nested customer object was expanded."""
+        if self.customer:
+            return self.customer.get("name") or self.customer.get("displayName") or ""
+        return ""

@@ -446,9 +446,16 @@ def order_list(ctx, from_date, to_date):
                 date_cls.fromisoformat(from_date),
                 date_cls.fromisoformat(to_date),
             )
+            click.echo(
+                "ID\tNUMBER\tREFERENCE\tORDER DATE\tDELIVERY\tCUSTOMER\tSTATUS"
+            )
             for o in orders:
-                cust = o.customer.get("displayName", "") if o.customer else ""
-                click.echo(f"{o.id}\t{o.number or ''}\t{o.order_date}\t{cust}")
+                status = "Closed" if o.is_closed else "Open"
+                click.echo(
+                    f"{o.id}\t{o.number or ''}\t{o.reference or ''}\t"
+                    f"{o.order_date or ''}\t{o.delivery_date or ''}\t"
+                    f"{o.customer_name}\t{status}"
+                )
 
     run_async(_list())
 
@@ -494,8 +501,15 @@ def invoice_list(ctx, from_date, to_date):
                 date_cls.fromisoformat(from_date),
                 date_cls.fromisoformat(to_date),
             )
+            click.echo(
+                "ID\tINVOICE NO\tDATE\tDUE\tCUSTOMER\tAMOUNT\tOUTSTANDING"
+            )
             for inv in invoices:
-                click.echo(f"{inv.id}\t{inv.invoice_number or ''}\t{inv.invoice_date}\t{inv.amount_currency or ''}")
+                click.echo(
+                    f"{inv.id}\t{inv.invoice_number or ''}\t{inv.invoice_date or ''}\t"
+                    f"{inv.due_date or ''}\t{inv.customer_name}\t"
+                    f"{inv.amount_currency or ''}\t{inv.amount_outstanding or ''}"
+                )
 
     run_async(_list())
 

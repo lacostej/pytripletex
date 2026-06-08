@@ -11,11 +11,16 @@ if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
 
+# By default the API collapses nested objects (customer, currency, ...) to
+# {id, url}. Expand the customer so list output can show its name.
+_ORDER_FIELDS = "*,customer(id,name,organizationNumber)"
+
+
 async def list_orders(
     client: TripletexClient,
     order_date_from: date,
     order_date_to: date,
-    fields: str = "",
+    fields: str = _ORDER_FIELDS,
     count: int = 1000,
 ) -> list[Order]:
     """GET /v2/order"""
@@ -34,7 +39,7 @@ async def list_orders(
 async def get_order(
     client: TripletexClient,
     order_id: int,
-    fields: str = "",
+    fields: str = _ORDER_FIELDS,
 ) -> Order:
     """GET /v2/order/{id}"""
     params = {"fields": fields} if fields else {}

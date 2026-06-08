@@ -11,11 +11,16 @@ if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
 
+# By default the API collapses nested objects (customer, currency, ...) to
+# {id, url}. Expand the customer so list output can show its name.
+_INVOICE_FIELDS = "*,customer(id,name,organizationNumber)"
+
+
 async def list_invoices(
     client: TripletexClient,
     invoice_date_from: date,
     invoice_date_to: date,
-    fields: str = "",
+    fields: str = _INVOICE_FIELDS,
     count: int = 1000,
 ) -> list[Invoice]:
     """GET /v2/invoice"""
@@ -34,7 +39,7 @@ async def list_invoices(
 async def get_invoice(
     client: TripletexClient,
     invoice_id: int,
-    fields: str = "",
+    fields: str = _INVOICE_FIELDS,
 ) -> Invoice:
     """GET /v2/invoice/{id}"""
     params = {"fields": fields} if fields else {}
