@@ -435,7 +435,6 @@ def order():
 @click.pass_context
 def order_list(ctx, from_date, to_date):
     """List orders in a date range."""
-    import asyncio
     from datetime import date as date_cls
 
     from tripletex.endpoints.invoices import list_invoices_for_order
@@ -449,25 +448,42 @@ def order_list(ctx, from_date, to_date):
                 date_cls.fromisoformat(to_date),
             )
 
-            # Orders have no link to their invoice(s); look them up per order
-            # (bounded concurrency to avoid hammering the API).
-            sem = asyncio.Semaphore(8)
+            # Orders carry no link to their invoice(s), so we look them up via
+            # /v2/invoice/{orderId}/invoices. A single invoice can bundle many
+            # orders (and that lookup returns the invoice's full order list), so
+            # cache invoice numbers per order id: once an order is seen — either
+            # queried directly or bundled into another order's invoice — we skip
+            # the redundant call. (A 7-order bundle then costs one call, not 7.)
+            inv_by_order: dict[int, list[str]] = {}
 
-            async def _invoice_numbers(o):
-                async with sem:
-                    invoices = await list_invoices_for_order(client, o.id)
-                return ", ".join(str(i.invoice_number) for i in invoices if i.invoice_number)
-
-            inv_numbers = await asyncio.gather(*(_invoice_numbers(o) for o in orders))
+            for o in orders:
+                if o.id in inv_by_order:
+                    continue
+                invoices = await list_invoices_for_order(
+                    client, o.id, fields="invoiceNumber,orders(id)"
+                )
+                inv_by_order.setdefault(o.id, [])
+                for inv in invoices:
+                    if not inv.invoice_number:
+                        continue
+                    num = str(inv.invoice_number)
+                    for ref in inv.orders or []:
+                        oid = ref.get("id")
+                        if oid is None:
+                            continue
+                        nums = inv_by_order.setdefault(oid, [])
+                        if num not in nums:
+                            nums.append(num)
 
             click.echo(
                 "ID\tNUMBER\tREFERENCE\tORDER DATE\tDELIVERY\tCUSTOMER\tSTATUS\t"
                 "INVOICE NO\tAMOUNT INC VAT\tAMOUNT EXC VAT"
             )
-            for o, inv_no in zip(orders, inv_numbers):
+            for o in orders:
                 status = "Closed" if o.is_closed else "Open"
                 inc = o.amount_including_vat
                 exc = o.amount_excluding_vat
+                inv_no = ", ".join(inv_by_order.get(o.id, []))
                 click.echo(
                     f"{o.id}\t{o.number or ''}\t{o.reference or ''}\t"
                     f"{o.order_date or ''}\t{o.delivery_date or ''}\t"
