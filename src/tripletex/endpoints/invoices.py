@@ -11,9 +11,14 @@ if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
 
-# By default the API collapses nested objects (customer, currency, ...) to
-# {id, url}. Expand the customer so list output can show its name.
-_INVOICE_FIELDS = "*,customer(id,name,organizationNumber)"
+# By default the API collapses nested objects (customer, currency, orders) to
+# {id, url}. Expand them so list output can show name, currency and reference.
+_INVOICE_FIELDS = (
+    "*,"
+    "customer(id,name,organizationNumber),"
+    "currency(id,code),"
+    "orders(id,number,reference)"
+)
 
 
 async def list_invoices(

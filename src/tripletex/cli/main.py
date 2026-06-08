@@ -502,13 +502,16 @@ def invoice_list(ctx, from_date, to_date):
                 date_cls.fromisoformat(to_date),
             )
             click.echo(
-                "ID\tINVOICE NO\tDATE\tDUE\tCUSTOMER\tAMOUNT\tOUTSTANDING"
+                "ID\tNO\tCUSTOMER\tREFERENCE\tSTATUS\tINVOICE DATE\tDUE\t"
+                "AMOUNT INC VAT\tCUR\tAMOUNT EXC VAT\tOUTSTANDING"
             )
             for inv in invoices:
                 click.echo(
-                    f"{inv.id}\t{inv.invoice_number or ''}\t{inv.invoice_date or ''}\t"
-                    f"{inv.due_date or ''}\t{inv.customer_name}\t"
-                    f"{inv.amount_currency or ''}\t{inv.amount_outstanding or ''}"
+                    f"{inv.id}\t{inv.invoice_number or ''}\t{inv.customer_name}\t"
+                    f"{inv.reference}\t{inv.status}\t{inv.invoice_date or ''}\t"
+                    f"{inv.due_date or ''}\t{inv.amount_currency or ''}\t"
+                    f"{inv.currency_code}\t{inv.amount_excluding_vat or ''}\t"
+                    f"{inv.amount_outstanding or ''}"
                 )
 
     run_async(_list())

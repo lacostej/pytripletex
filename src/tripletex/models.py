@@ -196,15 +196,21 @@ class Invoice(BaseModel):
     id: Optional[int] = None
     invoice_number: Optional[int] = Field(default=None, alias="invoiceNumber")
     order: Optional[dict] = None
+    orders: Optional[list[dict]] = None
     customer: Optional[dict] = None
+    currency: Optional[dict] = None
     invoice_date: Optional[datetime.date] = Field(default=None, alias="invoiceDate")
     due_date: Optional[datetime.date] = Field(default=None, alias="invoiceDueDate")
     amount: Optional[Decimal] = None
     amount_currency: Optional[Decimal] = Field(default=None, alias="amountCurrency")
+    amount_excluding_vat: Optional[Decimal] = Field(
+        default=None, alias="amountExcludingVatCurrency"
+    )
     amount_outstanding: Optional[Decimal] = Field(
         default=None, alias="amountCurrencyOutstanding"
     )
     is_credit_note: bool = Field(default=False, alias="isCreditNote")
+    is_credited: bool = Field(default=False, alias="isCredited")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
@@ -214,3 +220,31 @@ class Invoice(BaseModel):
         if self.customer:
             return self.customer.get("name") or self.customer.get("displayName") or ""
         return ""
+
+    @property
+    def currency_code(self) -> str:
+        """Currency code (e.g. NOK), if the currency object was expanded."""
+        return self.currency.get("code", "") if self.currency else ""
+
+    @property
+    def reference(self) -> str:
+        """Reference, taken from the first linked order that carries one."""
+        for o in self.orders or []:
+            ref = o.get("reference")
+            if ref:
+                return ref
+        return ""
+
+    @property
+    def status(self) -> str:
+        """Best single status label, highest priority first."""
+        if self.is_credited:
+            return "credited"
+        if self.is_credit_note:
+            return "credit note"
+        outstanding = self.amount_outstanding or Decimal(0)
+        if outstanding != 0:
+            if self.due_date and self.due_date < datetime.date.today():
+                return "overdue"
+            return "outstanding"
+        return "paid"
