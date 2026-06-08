@@ -164,6 +164,12 @@ class OrderLine(BaseModel):
     unit_price_excluding_vat_currency: Optional[Decimal] = Field(
         default=None, alias="unitPriceExcludingVatCurrency"
     )
+    amount_excluding_vat_currency: Optional[Decimal] = Field(
+        default=None, alias="amountExcludingVatCurrency"
+    )
+    amount_including_vat_currency: Optional[Decimal] = Field(
+        default=None, alias="amountIncludingVatCurrency"
+    )
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
@@ -187,6 +193,24 @@ class Order(BaseModel):
         if self.customer:
             return self.customer.get("name") or self.customer.get("displayName") or ""
         return ""
+
+    @property
+    def amount_including_vat(self) -> Optional[Decimal]:
+        """Order total incl. VAT, summed from order lines (None if unavailable)."""
+        return self._sum_lines("amount_including_vat_currency")
+
+    @property
+    def amount_excluding_vat(self) -> Optional[Decimal]:
+        """Order total excl. VAT, summed from order lines (None if unavailable)."""
+        return self._sum_lines("amount_excluding_vat_currency")
+
+    def _sum_lines(self, attr: str) -> Optional[Decimal]:
+        if self.order_lines is None:
+            return None
+        return sum(
+            (getattr(line, attr) or Decimal(0) for line in self.order_lines),
+            Decimal(0),
+        )
 
 
 # --- Invoices (API) ---

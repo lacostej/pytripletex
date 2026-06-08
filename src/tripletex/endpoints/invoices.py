@@ -52,6 +52,21 @@ async def get_invoice(
     return Invoice.model_validate(data.get("value", data))
 
 
+async def list_invoices_for_order(
+    client: TripletexClient,
+    order_id: int,
+    fields: str = "id,invoiceNumber,invoiceDate",
+) -> list[Invoice]:
+    """Invoices belonging to an order.
+
+    GET /v2/invoice/{orderId}/invoices — the only way to map an order to its
+    invoice(s); orders carry no back-reference and /v2/invoice has no order filter.
+    """
+    params = {"fields": fields} if fields else {}
+    data = await client.get_json(f"/v2/invoice/{order_id}/invoices", params=params)
+    return [Invoice.model_validate(v) for v in data.get("values", [])]
+
+
 async def create_invoice(
     client: TripletexClient,
     payload: dict[str, Any],

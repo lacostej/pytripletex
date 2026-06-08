@@ -435,8 +435,10 @@ def order():
 @click.pass_context
 def order_list(ctx, from_date, to_date):
     """List orders in a date range."""
+    import asyncio
     from datetime import date as date_cls
 
+    from tripletex.endpoints.invoices import list_invoices_for_order
     from tripletex.endpoints.orders import list_orders
 
     async def _list():
@@ -446,15 +448,32 @@ def order_list(ctx, from_date, to_date):
                 date_cls.fromisoformat(from_date),
                 date_cls.fromisoformat(to_date),
             )
+
+            # Orders have no link to their invoice(s); look them up per order
+            # (bounded concurrency to avoid hammering the API).
+            sem = asyncio.Semaphore(8)
+
+            async def _invoice_numbers(o):
+                async with sem:
+                    invoices = await list_invoices_for_order(client, o.id)
+                return ", ".join(str(i.invoice_number) for i in invoices if i.invoice_number)
+
+            inv_numbers = await asyncio.gather(*(_invoice_numbers(o) for o in orders))
+
             click.echo(
-                "ID\tNUMBER\tREFERENCE\tORDER DATE\tDELIVERY\tCUSTOMER\tSTATUS"
+                "ID\tNUMBER\tREFERENCE\tORDER DATE\tDELIVERY\tCUSTOMER\tSTATUS\t"
+                "INVOICE NO\tAMOUNT INC VAT\tAMOUNT EXC VAT"
             )
-            for o in orders:
+            for o, inv_no in zip(orders, inv_numbers):
                 status = "Closed" if o.is_closed else "Open"
+                inc = o.amount_including_vat
+                exc = o.amount_excluding_vat
                 click.echo(
                     f"{o.id}\t{o.number or ''}\t{o.reference or ''}\t"
                     f"{o.order_date or ''}\t{o.delivery_date or ''}\t"
-                    f"{o.customer_name}\t{status}"
+                    f"{o.customer_name}\t{status}\t{inv_no}\t"
+                    f"{inc if inc is not None else ''}\t"
+                    f"{exc if exc is not None else ''}"
                 )
 
     run_async(_list())

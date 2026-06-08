@@ -11,9 +11,14 @@ if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
 
-# By default the API collapses nested objects (customer, currency, ...) to
-# {id, url}. Expand the customer so list output can show its name.
-_ORDER_FIELDS = "*,customer(id,name,organizationNumber)"
+# By default the API collapses nested objects (customer, orderLines, ...) to
+# {id, url}. Expand the customer (for its name) and the order lines (for the
+# per-line amounts we sum into an order total).
+_ORDER_FIELDS = (
+    "*,"
+    "customer(id,name,organizationNumber),"
+    "orderLines(amountExcludingVatCurrency,amountIncludingVatCurrency)"
+)
 
 
 async def list_orders(
