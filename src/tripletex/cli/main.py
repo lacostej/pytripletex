@@ -430,8 +430,8 @@ def order():
 
 
 @order.command("list")
-@click.option("--from", "from_date", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("--to", "to_date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--from", "from_date", required=True, help="Start date, inclusive (YYYY-MM-DD)")
+@click.option("--to", "to_date", required=True, help="End date, exclusive (YYYY-MM-DD)")
 @click.pass_context
 def order_list(ctx, from_date, to_date):
     """List orders in a date range."""
@@ -520,8 +520,8 @@ def invoice():
 
 
 @invoice.command("list")
-@click.option("--from", "from_date", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("--to", "to_date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--from", "from_date", required=True, help="Start date, inclusive (YYYY-MM-DD)")
+@click.option("--to", "to_date", required=True, help="End date, exclusive (YYYY-MM-DD)")
 @click.pass_context
 def invoice_list(ctx, from_date, to_date):
     """List invoices in a date range."""

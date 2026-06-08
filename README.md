@@ -121,6 +121,9 @@ tripletex order get 12345
 tripletex invoice list --from 2026-01-01 --to 2026-03-31
 ```
 
+> **Date ranges are half-open `[from, to)`** — `--from` is inclusive, `--to` is
+> exclusive. An empty range (`--from == --to`) is rejected with HTTP 422.
+
 ### Programmatic usage
 
 ```python

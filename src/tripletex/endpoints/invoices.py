@@ -28,7 +28,7 @@ async def list_invoices(
     fields: str = _INVOICE_FIELDS,
     count: int = 1000,
 ) -> list[Invoice]:
-    """GET /v2/invoice"""
+    """GET /v2/invoice. Date range is half-open [from, to) — to is exclusive."""
     params: dict[str, str] = {
         "invoiceDateFrom": invoice_date_from.isoformat(),
         "invoiceDateTo": invoice_date_to.isoformat(),

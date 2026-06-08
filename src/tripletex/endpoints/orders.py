@@ -28,7 +28,7 @@ async def list_orders(
     fields: str = _ORDER_FIELDS,
     count: int = 1000,
 ) -> list[Order]:
-    """GET /v2/order"""
+    """GET /v2/order. Date range is half-open [from, to) — to is exclusive."""
     params: dict[str, str] = {
         "orderDateFrom": order_date_from.isoformat(),
         "orderDateTo": order_date_to.isoformat(),
