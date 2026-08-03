@@ -106,6 +106,12 @@ tripletex vouchers backup --output-dir ./backup --from 2025-01-01 --to 2025-12-3
 # Employee wages
 tripletex wages dump -o wages.json
 
+# Employees
+tripletex employee list [--active] [-q "search"]
+tripletex employee get 12345
+tripletex employee access            # login access vs. employment status (web auth)
+tripletex employee payslip [--manual]  # payslip delivery: app or manual (web auth)
+
 # Customers
 tripletex customer list [-q "search"]
 tripletex customer get 12345
@@ -123,6 +129,28 @@ tripletex invoice list --from 2026-01-01 --to 2026-03-31
 
 > **Date ranges are half-open `[from, to)`** — `--from` is inclusive, `--to` is
 > exclusive. An empty range (`--from == --to`) is rejected with HTTP 422.
+
+#### `employee access`
+
+Changing the unit an employee is registered on makes Tripletex end the current
+employment (`EMPLOYMENT_END_INTERNAL_CHANGE`) and create a new one. When the
+ended employment has "remove access at employment end" set, the login is revoked
+— and starting the new employment does not bring it back. `employee access`
+lists employees in that state: an active employment, but `allowLogin` off or a
+`loginEndDate` in the past.
+
+The login fields are not in any `/v2/*` endpoint (`SalesForceEmployee` carries
+`loginEndDate` in the API spec, but no path serves it, and the internal
+`/v2/salary/employee/overview/details` — which exposes `allowLogin` — rejects API
+tokens with 403). They are scraped from each employee's "User access" tab, so
+this command needs `--auth web` and makes one request per employee.
+
+#### `employee payslip`
+
+Shows whether each employee gets payslips through the Tripletex app or has them
+handled manually, from the internal salary overview endpoint (web auth only —
+API tokens get a 403). The method is a display string in your Tripletex language,
+so `--manual` matches on the word "app" rather than on the full English string.
 
 ### Programmatic usage
 

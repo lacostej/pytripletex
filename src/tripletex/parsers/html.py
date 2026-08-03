@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 
 from tripletex.models import (
     CompanyWageSettings,
+    EmployeeAccess,
     Employment,
     EmployeeSalary,
     Payment,
@@ -262,6 +263,33 @@ def parse_wage_settings_html(html: str) -> CompanyWageSettings:
                 pass
 
     return result
+
+
+def parse_employee_privileges_html(html: str, employee_id: int) -> EmployeeAccess:
+    """Parse /execute/updateEmployeePrivileges (the "User access" tab).
+
+    The login toggle is a checkbox (checked = login allowed) and the access end
+    dates are plain yyyy-MM-dd text fields.
+    """
+    soup = BeautifulSoup(html, "lxml")
+
+    checkbox = soup.find("input", attrs={"name": "allowLogin"})
+    allow_login = bool(checkbox is not None and checkbox.has_attr("checked"))
+
+    def _date(field: str) -> date | None:
+        el = soup.find("input", attrs={"name": field})
+        value = (el.get("value") or "").strip() if el is not None else ""
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    return EmployeeAccess(
+        employee_id=employee_id,
+        allow_login=allow_login,
+        login_end_date=_date("employee.loginEndDate"),
+        reg_info_end_date=_date("regInfoEndDate"),
+    )
 
 
 def extract_voucher_document_ids(html: str) -> list[int]:

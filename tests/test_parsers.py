@@ -6,6 +6,7 @@ from decimal import Decimal
 from tests.conftest import load_fixture
 from tripletex.parsers.html import (
     extract_voucher_document_ids,
+    parse_employee_privileges_html,
     parse_form,
     parse_remits_table,
     parse_salary_html,
@@ -100,6 +101,28 @@ class TestWageSettingsParser:
         assert settings.feriepenger_rate_1 == Decimal("10.2")
         assert settings.feriepenger_rate_2 == Decimal("12.5")
         assert settings.vacation_days == 25
+
+
+class TestEmployeePrivilegesParser:
+    def test_parse_privileges(self):
+        html = load_fixture("updateEmployeePrivileges.html")
+        access = parse_employee_privileges_html(html, employee_id=4888750)
+
+        assert access.employee_id == 4888750
+        assert access.allow_login is True
+        assert access.login_end_date == date(2026, 4, 30)
+        assert access.reg_info_end_date is None
+
+        # Access ran out the day after login_end_date.
+        assert access.access_ended(date(2026, 4, 30)) is False
+        assert access.access_ended(date(2026, 5, 1)) is True
+
+    def test_unchecked_allow_login_means_no_access(self):
+        html = load_fixture("updateEmployeePrivileges.html").replace(' checked="checked"', "")
+        access = parse_employee_privileges_html(html, employee_id=1)
+
+        assert access.allow_login is False
+        assert access.access_ended(date(2020, 1, 1)) is True
 
 
 class TestVoucherDocumentIds:

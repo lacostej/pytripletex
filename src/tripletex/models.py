@@ -114,6 +114,129 @@ class CompanyWageSettings(BaseModel):
     vacation_days: Optional[int] = None
 
 
+# --- Employees (API) ---
+
+
+class EmploymentPeriod(BaseModel):
+    """One employment period (the API's Employment object).
+
+    Distinct from `Employment` above, which is the salary-history block scraped
+    from the employee salary page.
+    """
+
+    id: Optional[int] = None
+    start_date: Optional[datetime.date] = Field(default=None, alias="startDate")
+    end_date: Optional[datetime.date] = Field(default=None, alias="endDate")
+    end_reason: Optional[str] = Field(default=None, alias="employmentEndReason")
+    division: Optional[dict] = None
+    is_main_employer: bool = Field(default=False, alias="isMainEmployer")
+    # When set, Tripletex revokes the employee's login when the period ends.
+    removes_access_at_end: bool = Field(
+        default=False, alias="isRemoveAccessAtEmploymentEnded"
+    )
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def division_name(self) -> str:
+        """Division (unit) name, if the nested division object was expanded."""
+        return self.division.get("name", "") if self.division else ""
+
+    def is_active(self, on: Optional[datetime.date] = None) -> bool:
+        """True if the period covers `on` (today by default)."""
+        on = on or datetime.date.today()
+        if self.start_date and self.start_date > on:
+            return False
+        return self.end_date is None or self.end_date >= on
+
+
+class Employee(BaseModel):
+    id: Optional[int] = None
+    first_name: Optional[str] = Field(default=None, alias="firstName")
+    last_name: Optional[str] = Field(default=None, alias="lastName")
+    display_name: str = Field(default="", alias="displayName")
+    employee_number: Optional[str] = Field(default=None, alias="employeeNumber")
+    email: Optional[str] = None
+    department: Optional[dict] = None
+    employments: list[EmploymentPeriod] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def department_name(self) -> str:
+        """Department name, if the nested department object was expanded."""
+        return self.department.get("name", "") if self.department else ""
+
+    def active_employments(
+        self, on: Optional[datetime.date] = None
+    ) -> list[EmploymentPeriod]:
+        """Employment periods covering `on` (today by default)."""
+        return [e for e in self.employments if e.is_active(on)]
+
+    def has_active_employment(self, on: Optional[datetime.date] = None) -> bool:
+        return bool(self.active_employments(on))
+
+    @property
+    def latest_employment(self) -> Optional[EmploymentPeriod]:
+        """Employment period with the most recent start date."""
+        dated = [e for e in self.employments if e.start_date]
+        if not dated:
+            return self.employments[0] if self.employments else None
+        return max(dated, key=lambda e: e.start_date)
+
+
+class EmployeeOverview(BaseModel):
+    """A row from the internal salary employee overview.
+
+    `payslip_delivery` is a display string localized to the logged-in user's
+    language — "The Tripletex app" / "Manual handling" in English, "Tripletex-appen"
+    / "Manuell håndtering" in Norwegian.
+    """
+
+    id: Optional[int] = None
+    display_name: str = Field(default="", alias="displayName")
+    employee_number: Optional[str] = Field(default=None, alias="number")
+    payslip_delivery: Optional[str] = Field(
+        default=None, alias="deliveryMethodWageSlipString"
+    )
+    allow_login: bool = Field(default=False, alias="allowLogin")
+    has_resigned: bool = Field(default=False, alias="hasResigned")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def payslip_via_app(self) -> bool:
+        """True if payslips go through the Tripletex app rather than manually.
+
+        Matched on the word "app", which holds for both the English ("The Tripletex
+        app") and Norwegian ("Tripletex-appen") strings; the manual variants
+        ("Manual handling" / "Manuell håndtering") contain no "app".
+        """
+        return "app" in (self.payslip_delivery or "").lower()
+
+
+class EmployeeAccess(BaseModel):
+    """Login access settings from an employee's "User access" tab.
+
+    `allow_login` is the account toggle; `login_end_date` is the last day the
+    login works. Ending an employment that has `removes_access_at_end` set makes
+    Tripletex fill in `login_end_date` (or clear `allow_login`) — and it does not
+    undo that when a later employment starts.
+    """
+
+    employee_id: int
+    allow_login: bool = False
+    login_end_date: Optional[datetime.date] = None
+    reg_info_end_date: Optional[datetime.date] = None
+
+    def access_ended(self, on: Optional[datetime.date] = None) -> bool:
+        """True if the employee cannot log in as of `on` (today by default)."""
+        on = on or datetime.date.today()
+        if not self.allow_login:
+            return True
+        return self.login_end_date is not None and self.login_end_date < on
+
+
 # --- Customers (API) ---
 
 

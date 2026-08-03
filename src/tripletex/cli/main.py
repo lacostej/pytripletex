@@ -353,6 +353,157 @@ def wages_dump(ctx, output):
     run_async(_dump())
 
 
+# --- Employees (API) ---
+
+
+def _employment_summary(employee, on):
+    """One-line employment status, e.g. 'active since 2026-05-01 (DLC)'."""
+    active = employee.active_employments(on)
+    if active:
+        e = active[0]
+        return f"active since {e.start_date or '?'}\t{e.division_name}"
+    last = employee.latest_employment
+    if last is None:
+        return "no employment\t"
+    reason = f" ({last.end_reason})" if last.end_reason else ""
+    return f"ended {last.end_date or '?'}{reason}\t{last.division_name}"
+
+
+@cli.group()
+def employee():
+    """Employee commands."""
+    pass
+
+
+@employee.command("list")
+@click.option("--query", "-q", default=None, help="Search query")
+@click.option("--active", is_flag=True, help="Only employees with an active employment")
+@click.pass_context
+def employee_list(ctx, query, active):
+    """List employees with their employment status."""
+    from datetime import date
+
+    from tripletex.endpoints.employees import list_employees
+
+    async def _list():
+        async with _client(ctx) as client:
+            today = date.today()
+            employees = await list_employees(client, query=query)
+            for e in employees:
+                if active and not e.has_active_employment(today):
+                    continue
+                click.echo(
+                    f"{e.id}\t{e.employee_number or ''}\t{e.display_name}\t"
+                    f"{e.department_name}\t{_employment_summary(e, today)}"
+                )
+
+    run_async(_list())
+
+
+@employee.command("get")
+@click.argument("employee_id", type=int)
+@click.pass_context
+def employee_get(ctx, employee_id):
+    """Get an employee by ID."""
+    from tripletex.endpoints.employees import get_employee
+
+    async def _get():
+        async with _client(ctx) as client:
+            e = await get_employee(client, employee_id)
+            click.echo(e.model_dump_json(indent=2))
+
+    run_async(_get())
+
+
+@employee.command("access")
+@click.option("--all", "show_all", is_flag=True, help="Show every employee, not just problems")
+@click.option(
+    "--include-inactive",
+    is_flag=True,
+    help="Also check employees without an active employment (slower)",
+)
+@click.pass_context
+def employee_access(ctx, show_all, include_inactive):
+    """Check login access against employment status (web auth).
+
+    Flags employees who have an active employment but can no longer log in —
+    what happens when an employment is ended by a unit change and the new one
+    does not restore access.
+    """
+    from datetime import date
+
+    from tripletex.endpoints.employees import (
+        fetch_access_report,
+        find_access_issues,
+        list_employees,
+    )
+
+    async def _access():
+        async with _client(ctx) as client:
+            today = date.today()
+            employees = await list_employees(client)
+            if not include_inactive:
+                employees = [e for e in employees if e.has_active_employment(today)]
+
+            report = await fetch_access_report(client, employees)
+            issues = {e.id for e, _ in find_access_issues(report, today)}
+
+            for e, access in report:
+                if not show_all and e.id not in issues:
+                    continue
+                flag = "  <-- ACCESS ENDED" if e.id in issues else ""
+                click.echo(
+                    f"{e.id}\t{e.employee_number or ''}\t{e.display_name}\t"
+                    f"{_employment_summary(e, today)}\t"
+                    f"login={'yes' if access.allow_login else 'no'}\t"
+                    f"until={access.login_end_date or ''}{flag}"
+                )
+
+            click.echo(
+                f"\n{len(issues)} of {len(report)} checked employees have an active "
+                f"employment but no login access."
+            )
+
+    run_async(_access())
+
+
+@employee.command("payslip")
+@click.option("--manual", is_flag=True, help="Only employees whose payslips are handled manually")
+@click.option("--include-resigned", is_flag=True, help="Also include resigned employees")
+@click.pass_context
+def employee_payslip(ctx, manual, include_resigned):
+    """Show how each employee's payslip is delivered (web auth).
+
+    The delivery method is a display string localized to your Tripletex language,
+    e.g. "The Tripletex app" or "Manual handling".
+    """
+    from collections import Counter
+
+    from tripletex.endpoints.employees import fetch_employee_overview
+
+    async def _payslip():
+        async with _client(ctx) as client:
+            rows = await fetch_employee_overview(client)
+            if not include_resigned:
+                rows = [r for r in rows if not r.has_resigned]
+
+            counts = Counter(r.payslip_delivery or "(unknown)" for r in rows)
+
+            for r in rows:
+                if manual and r.payslip_via_app:
+                    continue
+                click.echo(
+                    f"{r.id}\t{r.employee_number or ''}\t{r.display_name}\t"
+                    f"{r.payslip_delivery or ''}"
+                )
+
+            click.echo("")
+            for method, n in counts.most_common():
+                click.echo(f"{n}\t{method}")
+
+    run_async(_payslip())
+
+
 # --- Customers (API) ---
 
 
