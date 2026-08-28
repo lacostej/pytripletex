@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field
 
+from tripletex.endpoints._paging import paginate
+
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
@@ -60,7 +62,7 @@ class BankPayment(BaseModel):
 async def list_payments(
     client: TripletexClient,
     status_filter: str = "FOR_APPROVAL",
-    count: int = 10000,
+    limit: int | None = None,
 ) -> list[BankPayment]:
     """List bank payments.
 
@@ -69,7 +71,7 @@ async def list_payments(
     Args:
         client: Authenticated TripletexClient
         status_filter: "FOR_APPROVAL", "APPROVED", "SENT_TO_BANK", "RECEIVED_BY_BANK", etc.
-        count: Max results to fetch
+        limit: Max results to fetch (default: every match)
     """
     params = {
         "fields": _PAYMENT_FIELDS,
@@ -81,9 +83,7 @@ async def list_payments(
         "autoPosted": "false",
         "paymentSource": "AutoPayTransaction",
         "query": "",
-        "count": str(count),
-        "from": "0",
     }
 
-    data = await client.get_json("/v2/bank/payment", params=params)
-    return [BankPayment.model_validate(v) for v in data.get("values", [])]
+    values = await paginate(client, "/v2/bank/payment", params=params, limit=limit)
+    return [BankPayment.model_validate(v) for v in values]

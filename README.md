@@ -130,6 +130,11 @@ tripletex invoice list --from 2026-01-01 --to 2026-03-31
 > **Date ranges are half-open `[from, to)`** — `--from` is inclusive, `--to` is
 > exclusive. An empty range (`--from == --to`) is rejected with HTTP 422.
 
+> **List functions return every match**, paging until a short page. Pass
+> `limit=N` to stop early. They deliberately ignore `fullResultSize`: on most
+> Tripletex endpoints it is `min(total, count) + 1`, a has-more flag rather than
+> a total.
+
 #### `employee access`
 
 Changing the unit an employee is registered on makes Tripletex end the current

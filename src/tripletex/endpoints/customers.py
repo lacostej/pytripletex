@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import Customer
 
 if TYPE_CHECKING:
@@ -14,16 +15,16 @@ async def list_customers(
     client: TripletexClient,
     query: str | None = None,
     fields: str = "",
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[Customer]:
-    """GET /v2/customer"""
-    params: dict[str, str] = {"from": "0", "count": str(count)}
+    """GET /v2/customer. Returns every match unless `limit` is given."""
+    params: dict[str, str] = {}
     if query:
         params["query"] = query
     if fields:
         params["fields"] = fields
-    data = await client.get_json("/v2/customer", params=params)
-    return [Customer.model_validate(v) for v in data.get("values", [])]
+    values = await paginate(client, "/v2/customer", params=params, limit=limit)
+    return [Customer.model_validate(v) for v in values]
 
 
 async def get_customer(

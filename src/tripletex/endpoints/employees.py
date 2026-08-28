@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import Employee, EmployeeAccess, EmployeeOverview
 from tripletex.parsers.html import parse_employee_privileges_html
 
@@ -37,20 +38,19 @@ async def list_employees(
     query: str | None = None,
     availability: str = "ALL",
     fields: str = _EMPLOYEE_FIELDS,
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[Employee]:
-    """GET /v2/employee. Availability: ACTIVE, INACTIVE or ALL."""
-    params: dict[str, str] = {
-        "from": "0",
-        "count": str(count),
-        "employeeAvailability": availability,
-    }
+    """GET /v2/employee. Availability: ACTIVE, INACTIVE or ALL.
+
+    Returns every match unless `limit` is given.
+    """
+    params: dict[str, str] = {"employeeAvailability": availability}
     if query:
         params["query"] = query
     if fields:
         params["fields"] = fields
-    data = await client.get_json("/v2/employee", params=params)
-    return [Employee.model_validate(v) for v in data.get("values", [])]
+    values = await paginate(client, "/v2/employee", params=params, limit=limit)
+    return [Employee.model_validate(v) for v in values]
 
 
 async def get_employee(
@@ -75,7 +75,7 @@ async def fetch_employee_overview(
     client: TripletexClient,
     availability: str = "ALL",
     fields: str = _OVERVIEW_FIELDS,
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[EmployeeOverview]:
     """POST /v2/salary/employee/overview/details (internal — web session only).
 
@@ -84,18 +84,18 @@ async def fetch_employee_overview(
     """
     _require_web_session(client, "the salary employee overview")
 
-    data = await client.post_json(
+    values = await paginate(
+        client,
         "/v2/salary/employee/overview/details",
         params={
             "fields": fields,
-            "from": "0",
-            "count": str(count),
             "sorting": "displayName",
             "employeeAvailability": availability,
         },
         json_body={"query": "", "employeeIdsToShowOnTop": ""},
+        limit=limit,
     )
-    return [EmployeeOverview.model_validate(v) for v in data.get("values", [])]
+    return [EmployeeOverview.model_validate(v) for v in values]
 
 
 async def fetch_employee_access(

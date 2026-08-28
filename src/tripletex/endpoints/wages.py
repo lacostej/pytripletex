@@ -6,6 +6,7 @@ import asyncio
 from datetime import date
 from typing import TYPE_CHECKING
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import CompanyWageSettings, EmployeeSalary
 from tripletex.parsers.html import parse_salary_html, parse_wage_settings_html
 
@@ -20,19 +21,17 @@ async def fetch_employee_list(client: TripletexClient) -> list[dict]:
     Returns raw dicts with: id, displayName, hasResigned, number, etc.
     """
     params = {
-        "from": "0",
         "fields": "id, displayName, hasResigned, number, currentCompanyEmployeeRate(id, hourlyRate, hourlyCost)",
-        "count": "100",
         "employeeAvailability": "ACTIVE",
         "year": str(date.today().year),
     }
 
-    data = await client.post_json(
+    return await paginate(
+        client,
         "/v2/salary/employee/overview/details",
         params=params,
         json_body={"query": "", "employeeIdsToShowOnTop": ""},
     )
-    return data.get("values", [])
 
 
 async def fetch_employee_salary(

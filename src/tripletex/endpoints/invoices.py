@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import Invoice
 
 if TYPE_CHECKING:
@@ -26,19 +27,20 @@ async def list_invoices(
     invoice_date_from: date,
     invoice_date_to: date,
     fields: str = _INVOICE_FIELDS,
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[Invoice]:
-    """GET /v2/invoice. Date range is half-open [from, to) — to is exclusive."""
+    """GET /v2/invoice. Date range is half-open [from, to) — to is exclusive.
+
+    Returns every invoice in the range unless `limit` is given.
+    """
     params: dict[str, str] = {
         "invoiceDateFrom": invoice_date_from.isoformat(),
         "invoiceDateTo": invoice_date_to.isoformat(),
-        "from": "0",
-        "count": str(count),
     }
     if fields:
         params["fields"] = fields
-    data = await client.get_json("/v2/invoice", params=params)
-    return [Invoice.model_validate(v) for v in data.get("values", [])]
+    values = await paginate(client, "/v2/invoice", params=params, limit=limit)
+    return [Invoice.model_validate(v) for v in values]
 
 
 async def get_invoice(

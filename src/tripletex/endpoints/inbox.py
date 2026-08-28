@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field
 
+from tripletex.endpoints._paging import paginate
+
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
@@ -46,35 +48,19 @@ class InboxItem(BaseModel):
 
 async def list_inbox(
     client: TripletexClient,
-    count: int = 1000,
+    limit: int | None = None,
     sort_direction: str = "DESCENDING",
 ) -> list[InboxItem]:
     """List items in the voucher inbox.
 
-    GET /v2/voucherInbox/inboxFiltered
+    GET /v2/voucherInbox/inboxFiltered. Returns the whole inbox unless `limit`
+    is given; the endpoint serves at most 50 rows per request.
     """
-    all_items: list[InboxItem] = []
-    offset = 0
-
-    while True:
-        data = await client.get_json(
-            "/v2/voucherInbox/inboxFiltered",
-            params={
-                "from": str(offset),
-                "count": str(min(count - offset, 50)),
-                "sortDirection": sort_direction,
-            },
-        )
-
-        values = data.get("values", [])
-        if not values:
-            break
-
-        all_items.extend(InboxItem.model_validate(v) for v in values)
-
-        total = data.get("fullResultSize", len(all_items))
-        offset += len(values)
-        if offset >= total or offset >= count:
-            break
-
-    return all_items
+    values = await paginate(
+        client,
+        "/v2/voucherInbox/inboxFiltered",
+        params={"sortDirection": sort_direction},
+        page_size=50,
+        limit=limit,
+    )
+    return [InboxItem.model_validate(v) for v in values]

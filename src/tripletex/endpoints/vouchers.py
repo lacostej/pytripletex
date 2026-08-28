@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import VoucherMeta
 
 if TYPE_CHECKING:
@@ -23,53 +24,35 @@ async def list_vouchers(
     client: TripletexClient,
     date_from: date | None = None,
     date_to: date | None = None,
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[VoucherMeta]:
     """Enumerate vouchers with attachment info via the JSON API.
 
     GET /v2/ledger/voucher?dateFrom=X&dateTo=Y&fields=...&from=0&count=N
     """
-    params: dict[str, str] = {
-        "from": "0",
-        "count": str(count),
-        "fields": _VOUCHER_FIELDS,
-    }
+    params: dict[str, str] = {"fields": _VOUCHER_FIELDS}
     if date_from:
         params["dateFrom"] = date_from.isoformat()
     if date_to:
         params["dateTo"] = date_to.isoformat()
 
+    values = await paginate(client, "/v2/ledger/voucher", params=params, limit=limit)
+
     all_vouchers: list[VoucherMeta] = []
-    offset = 0
+    for v in values:
+        attachment = v.get("attachment")
+        doc_ids = [attachment["id"]] if attachment and attachment.get("id") else []
 
-    while True:
-        params["from"] = str(offset)
-        data = await client.get_json("/v2/ledger/voucher", params=params)
-
-        values = data.get("values", [])
-        if not values:
-            break
-
-        for v in values:
-            attachment = v.get("attachment")
-            doc_ids = [attachment["id"]] if attachment and attachment.get("id") else []
-            doc_filename = attachment.get("fileName") if attachment else None
-
-            all_vouchers.append(
-                VoucherMeta(
-                    id=v["id"],
-                    number=v.get("number"),
-                    year=v.get("year"),
-                    date=v.get("date"),
-                    description=v.get("description"),
-                    document_ids=doc_ids,
-                )
+        all_vouchers.append(
+            VoucherMeta(
+                id=v["id"],
+                number=v.get("number"),
+                year=v.get("year"),
+                date=v.get("date"),
+                description=v.get("description"),
+                document_ids=doc_ids,
             )
-
-        total = data.get("fullResultSize", len(all_vouchers))
-        offset += len(values)
-        if offset >= total:
-            break
+        )
 
     return all_vouchers
 

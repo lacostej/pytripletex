@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import Order, OrderLine
 
 if TYPE_CHECKING:
@@ -26,19 +27,20 @@ async def list_orders(
     order_date_from: date,
     order_date_to: date,
     fields: str = _ORDER_FIELDS,
-    count: int = 1000,
+    limit: int | None = None,
 ) -> list[Order]:
-    """GET /v2/order. Date range is half-open [from, to) — to is exclusive."""
+    """GET /v2/order. Date range is half-open [from, to) — to is exclusive.
+
+    Returns every order in the range unless `limit` is given.
+    """
     params: dict[str, str] = {
         "orderDateFrom": order_date_from.isoformat(),
         "orderDateTo": order_date_to.isoformat(),
-        "from": "0",
-        "count": str(count),
     }
     if fields:
         params["fields"] = fields
-    data = await client.get_json("/v2/order", params=params)
-    return [Order.model_validate(v) for v in data.get("values", [])]
+    values = await paginate(client, "/v2/order", params=params, limit=limit)
+    return [Order.model_validate(v) for v in values]
 
 
 async def get_order(
