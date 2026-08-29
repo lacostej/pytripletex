@@ -77,6 +77,53 @@ async def test_server_capped_page_size_still_terminates():
     assert len(rows) == 120
 
 
+class IgnoresPagingClient:
+    """Serves the whole set every request, like /v2/ledger/voucher/>nonPosted.
+
+    Ignores `from` and `count`, and reports fullResultSize=0.
+    """
+
+    def __init__(self, total: int):
+        self.total = total
+        self.calls = 0
+
+    async def get_json(self, path, params=None):
+        self.calls += 1
+        return {"values": [{"id": i} for i in range(self.total)], "fullResultSize": 0}
+
+
+async def test_endpoint_ignoring_count_returns_everything_once():
+    client = IgnoresPagingClient(total=24)
+    rows = await paginate(client, "/v2/ledger/voucher/>nonPosted", page_size=1000)
+    assert len(rows) == 24
+    assert client.calls == 1
+
+
+async def test_endpoint_ignoring_paging_does_not_loop_or_duplicate():
+    # The dangerous case: the full set is larger than one page, so a naive pager
+    # would advance `from`, get the same rows back, and never terminate.
+    client = IgnoresPagingClient(total=2500)
+    rows = await paginate(client, "/v2/ledger/voucher/>nonPosted", page_size=1000)
+    assert len(rows) == 2500
+    assert [r["id"] for r in rows] == list(range(2500))
+    assert client.calls == 1
+
+
+async def test_identical_page_twice_stops_without_duplicating():
+    # Exactly page-size rows: the long-page rule cannot fire, so the repeated-page
+    # check is what stops it.
+    client = IgnoresPagingClient(total=1000)
+    rows = await paginate(client, "/v2/ledger/voucher/>nonPosted", page_size=1000)
+    assert len(rows) == 1000
+    assert client.calls == 2
+
+
+async def test_limit_is_honoured_even_when_the_endpoint_overserves():
+    client = IgnoresPagingClient(total=2500)
+    rows = await paginate(client, "/v2/ledger/voucher/>nonPosted", page_size=1000, limit=10)
+    assert len(rows) == 10
+
+
 async def test_extra_params_are_preserved_and_post_body_passed_through():
     client = FakeClient(total=3)
     rows = await paginate(
