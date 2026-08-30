@@ -19,7 +19,28 @@ class Session(Protocol):
     def request_auth(self) -> httpx.Auth | None: ...
 
 
-class WebSessionRequired(RuntimeError):
+class AuthUnavailable(RuntimeError):
+    """Base for "this run cannot authenticate the way it needs to"."""
+
+
+class InteractiveLoginRequired(AuthUnavailable):
+    """A web session must be refreshed, but there is no terminal to do it on.
+
+    Raised instead of blocking on an MFA prompt that a scheduler or pipeline can
+    never answer.
+    """
+
+    def __init__(self, env_name: str | None = None) -> None:
+        env = f" --env {env_name}" if env_name else ""
+        super().__init__(
+            "The web session has expired and Visma Connect wants an MFA code, "
+            "but stdin is not a terminal. Refresh it from a terminal with: "
+            f"tripletex{env} login"
+        )
+        self.env_name = env_name
+
+
+class WebSessionRequired(AuthUnavailable):
     """An operation needs cookie/context auth that API tokens cannot provide.
 
     Either the endpoint rejects token auth outright (`/v2/bank/payment` and

@@ -9,7 +9,7 @@ import sys
 import click
 
 from tripletex.config import load_config
-from tripletex.session import WebSessionRequired, require_web_session
+from tripletex.session import AuthUnavailable, require_web_session
 
 
 @click.group()
@@ -93,13 +93,13 @@ def _client(ctx):
 def run_async(coro):
     """Run an async function from a sync Click command.
 
-    Turns the one library error users routinely hit — asking for a web-only
-    feature under API-token auth — into a plain CLI message instead of a
-    traceback.
+    Turns the auth problems users routinely hit — asking for a web-only feature
+    under API-token auth, or an expired web session with no terminal to re-login
+    from — into plain CLI messages instead of tracebacks.
     """
     try:
         return asyncio.run(coro)
-    except WebSessionRequired as e:
+    except AuthUnavailable as e:
         raise click.ClickException(str(e)) from e
 
 

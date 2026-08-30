@@ -79,3 +79,38 @@ def test_guard_returns_the_session_when_it_is_a_web_session():
 
     session = WebSession(cookies=httpx.Cookies(), context_id="123")
     assert require_web_session(session, "anything") is session
+
+
+async def test_expired_session_without_a_terminal_raises_instead_of_prompting(monkeypatch):
+    """A scheduler can never answer an MFA prompt — fail with instructions instead."""
+    import sys
+
+    from tripletex.auth import visma_connect
+    from tripletex.auth.visma_connect import LoginState, visma_connect_login
+    from tripletex.session import AuthUnavailable, InteractiveLoginRequired
+
+    state = LoginState(
+        cookies=None, visma_base="https://connect.visma.com",
+        mfa_form_action="/login/totp", mfa_form_data={},
+        mfa_field_name="AuthCode", base_url="https://tripletex.no",
+    )
+
+    async def fake_phase1(config, http):
+        return state
+
+    monkeypatch.setattr(visma_connect, "_do_login_phase1", fake_phase1)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+
+    def explode(*a, **kw):  # pragma: no cover - must not be reached
+        raise AssertionError("prompted for MFA on a non-interactive stdin")
+
+    monkeypatch.setattr(sys.stdin, "readline", explode, raising=False)
+
+    config = TripletexConfig(username="u", password_visma="p", env_name="prod")
+    with pytest.raises(InteractiveLoginRequired) as excinfo:
+        await visma_connect_login(config)
+
+    message = str(excinfo.value)
+    assert "tripletex --env prod login" in message
+    # The CLI catches the shared base, so both auth failures render the same way.
+    assert isinstance(excinfo.value, AuthUnavailable)

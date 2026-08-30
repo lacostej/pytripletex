@@ -26,7 +26,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tripletex.parsers.js import extract_csrf_token, extract_js_redirect_url
-from tripletex.session import WebSession
+from tripletex.session import InteractiveLoginRequired, WebSession
 
 if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
@@ -165,9 +165,15 @@ async def visma_connect_login(
         if isinstance(result, WebSession):
             return result
 
-        # MFA required — prompt on stdin (CLI mode)
+        # MFA required. Only a terminal can answer it, so fail cleanly rather
+        # than reading EOF from a pipe and dying later on a missing contextId.
+        if not sys.stdin.isatty():
+            raise InteractiveLoginRequired(config.env_name)
+
         print("Enter your 6-digit MFA code: ", end="", flush=True, file=sys.stderr)
         auth_code = sys.stdin.readline().strip()
+        if not auth_code:
+            raise InteractiveLoginRequired(config.env_name)
 
         return await complete_login(result, auth_code, http)
     finally:
