@@ -135,3 +135,38 @@ async def test_extra_params_are_preserved_and_post_body_passed_through():
     )
     assert len(rows) == 3
     assert client.body == {"query": ""}
+
+
+class RecordingClient:
+    """Captures the request the non-posted queue endpoint receives."""
+
+    def __init__(self, values):
+        self.values = values
+        self.path = None
+        self.params = None
+
+    async def get_json(self, path, params=None):
+        self.path, self.params = path, params
+        return {"values": self.values, "fullResultSize": 0}
+
+
+async def test_non_posted_queue_sends_the_filters_the_endpoint_expects():
+    from tripletex.endpoints.vouchers import list_non_posted_vouchers
+
+    client = RecordingClient([
+        {"id": 1, "number": 0, "tempNumber": 17471, "date": "2026-08-27",
+         "description": "Lightspeed", "attachment": None},
+    ])
+    vouchers = await list_non_posted_vouchers(
+        client, changed_since="2026-08-25T00:00:00Z"
+    )
+
+    assert client.path == "/v2/ledger/voucher/>nonPosted"
+    # includeNonApproved is mandatory; a bare date in changedSince gets a 422, so
+    # the value is passed through untouched rather than reformatted.
+    assert client.params["includeNonApproved"] == "true"
+    assert client.params["changedSince"] == "2026-08-25T00:00:00Z"
+    # Unposted vouchers carry number 0 — the temp number is the useful identity.
+    assert vouchers[0].number == 0
+    assert vouchers[0].temp_number == 17471
+    assert vouchers[0].display_number == "T17471"

@@ -79,10 +79,22 @@ class Payment(BaseModel):
 class VoucherMeta(BaseModel):
     id: int
     number: Optional[int] = None
+    # Non-posted vouchers have number 0 and are identified by tempNumber, which
+    # is what the Tripletex UI shows for them.
+    temp_number: Optional[int] = Field(default=None, alias="tempNumber")
     year: Optional[int] = None
     date: Optional[datetime.date] = None
     description: Optional[str] = None
     document_ids: list[int] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def display_number(self) -> str:
+        """Voucher number, or the temp number for a not-yet-posted voucher."""
+        if self.number:
+            return str(self.number)
+        return f"T{self.temp_number}" if self.temp_number else ""
 
 
 # --- Wages / Employees ---

@@ -18,7 +18,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VOUCHER_FIELDS = "id,number,year,date,description,attachment(id,fileName)"
+_VOUCHER_FIELDS = "id,number,tempNumber,year,date,description,attachment(id,fileName)"
+
+
+def _to_meta(v: dict) -> VoucherMeta:
+    attachment = v.get("attachment")
+    doc_ids = [attachment["id"]] if attachment and attachment.get("id") else []
+    return VoucherMeta(
+        id=v["id"],
+        number=v.get("number"),
+        temp_number=v.get("tempNumber"),
+        year=v.get("year"),
+        date=v.get("date"),
+        description=v.get("description"),
+        document_ids=doc_ids,
+    )
 
 
 async def list_vouchers(
@@ -38,24 +52,41 @@ async def list_vouchers(
         params["dateTo"] = date_to.isoformat()
 
     values = await paginate(client, "/v2/ledger/voucher", params=params, limit=limit)
+    return [_to_meta(v) for v in values]
 
-    all_vouchers: list[VoucherMeta] = []
-    for v in values:
-        attachment = v.get("attachment")
-        doc_ids = [attachment["id"]] if attachment and attachment.get("id") else []
 
-        all_vouchers.append(
-            VoucherMeta(
-                id=v["id"],
-                number=v.get("number"),
-                year=v.get("year"),
-                date=v.get("date"),
-                description=v.get("description"),
-                document_ids=doc_ids,
-            )
-        )
+async def list_non_posted_vouchers(
+    client: TripletexClient,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    changed_since: str | None = None,
+    include_non_approved: bool = True,
+) -> list[VoucherMeta]:
+    """Vouchers registered but not yet posted — the "to process" queue.
 
-    return all_vouchers
+    GET /v2/ledger/voucher/>nonPosted. Works with API-token auth, unlike the
+    voucher inbox.
+
+    Quirks, all measured: the endpoint ignores `from` and `count` and returns
+    the whole set every time (`fullResultSize` is 0), so `changed_since` is how
+    you fetch incrementally — it wants strict `YYYY-MM-DDThh:mm:ssZ` and rejects
+    a bare date with 422. `include_non_approved` only narrows the result when
+    the voucher approval workflow is enabled; with it off both values return the
+    same set.
+    """
+    params: dict[str, str] = {
+        "includeNonApproved": "true" if include_non_approved else "false",
+        "fields": _VOUCHER_FIELDS,
+    }
+    if date_from:
+        params["dateFrom"] = date_from.isoformat()
+    if date_to:
+        params["dateTo"] = date_to.isoformat()
+    if changed_since:
+        params["changedSince"] = changed_since
+
+    data = await client.get_json("/v2/ledger/voucher/>nonPosted", params=params)
+    return [_to_meta(v) for v in data.get("values", [])]
 
 
 async def download_voucher_document(

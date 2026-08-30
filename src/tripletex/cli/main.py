@@ -265,8 +265,72 @@ def payments_list(ctx, due_within, status, company, notify_slack):
 
 @cli.group()
 def vouchers():
-    """Voucher backup commands."""
+    """Voucher listing and backup commands."""
     pass
+
+
+def _vouchers_json(voucher_list) -> str:
+    import json
+
+    return json.dumps([v.model_dump(mode="json") for v in voucher_list], indent=2)
+
+
+@vouchers.command("list")
+@click.option("--from", "from_date", required=True, help="Start date, inclusive (YYYY-MM-DD)")
+@click.option("--to", "to_date", required=True, help="End date, exclusive (YYYY-MM-DD)")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of columns")
+@click.pass_context
+def vouchers_list(ctx, from_date, to_date, as_json):
+    """List ledger vouchers in a date range (works with API tokens)."""
+    from datetime import date as date_cls
+
+    from tripletex.endpoints.vouchers import list_vouchers
+
+    async def _list():
+        async with _client(ctx) as client:
+            voucher_list = await list_vouchers(
+                client,
+                date_cls.fromisoformat(from_date),
+                date_cls.fromisoformat(to_date),
+            )
+            if as_json:
+                click.echo(_vouchers_json(voucher_list))
+                return
+            for v in voucher_list:
+                docs = str(len(v.document_ids)) if v.document_ids else ""
+                click.echo(
+                    f"{v.id}\t{v.display_number}\t{v.date or ''}\t{docs}\t{v.description or ''}"
+                )
+
+    run_async(_list())
+
+
+@vouchers.command("queue")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of columns")
+@click.pass_context
+def vouchers_queue(ctx, as_json):
+    """List vouchers registered but not yet posted (works with API tokens).
+
+    This is the "to process" backlog. The voucher inbox is a different queue and
+    needs web auth.
+    """
+    from datetime import date
+
+    from tripletex.endpoints.vouchers import list_non_posted_vouchers
+
+    async def _queue():
+        async with _client(ctx) as client:
+            voucher_list = await list_non_posted_vouchers(client)
+            if as_json:
+                click.echo(_vouchers_json(voucher_list))
+                return
+            for v in sorted(voucher_list, key=lambda v: (v.date or date.min, v.id)):
+                click.echo(
+                    f"{v.id}\t{v.date or ''}\t{v.display_number}\t{v.description or ''}"
+                )
+            click.echo(f"\n{len(voucher_list)} vouchers waiting to be processed")
+
+    run_async(_queue())
 
 
 @vouchers.command("backup")
