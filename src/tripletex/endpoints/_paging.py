@@ -1,19 +1,22 @@
 """Pagination helper for Tripletex list endpoints.
 
-`fullResultSize` is not a total. On every list endpoint measured except
-`/v2/ledger/voucher` it is ``min(total, count) + 1`` — a has-more flag that only
-looks like a total when `count` happens to exceed the result set:
+`fullResultSize` is not a total, and Tripletex documents it as such — every
+`ListResponse*` in the spec describes it as "Indicates whether there are more
+values available. Note: The value is not exact". Measured, it is
+``min(total, count) + 1``, which only looks like a total when `count` happens to
+exceed the result set:
 
     /v2/employee   count=1 -> frs=2    count=3 -> frs=4    count=5000 -> frs=65 (65 rows)
-    /v2/ledger/voucher      frs=2453 at every count       (a real total)
+    /v2/ledger/voucher      frs=2453 at every count       (exact here, but not promised)
 
-So we never read it. Paging stops on the first short page, which is correct on
-both kinds of endpoint.
+So we never read it — not even where it currently looks exact. Paging stops on
+the first short page, which is correct on both kinds of endpoint.
 
 A third kind exists: `/v2/ledger/voucher/>nonPosted` ignores `from` and `count`
 entirely, reports `fullResultSize=0`, and returns the whole set on every request.
 That is handled by stopping when a page comes back longer than requested or
-identical to the one before it.
+identical to the one before it. Endpoints of that kind are meant to be narrowed
+with `changedSince`/`dateFrom` rather than walked by offset.
 """
 
 from __future__ import annotations
