@@ -19,6 +19,30 @@ class Session(Protocol):
     def request_auth(self) -> httpx.Auth | None: ...
 
 
+class WebSessionRequired(RuntimeError):
+    """An operation needs cookie/context auth that API tokens cannot provide.
+
+    Either the endpoint rejects token auth outright (`/v2/bank/payment` and
+    `/v2/voucherInbox/inboxFiltered` answer 403; the internal salary endpoints
+    too), or it needs the `contextId` that only a web session carries — company
+    switching and every `/execute/*` page.
+    """
+
+    def __init__(self, what: str) -> None:
+        super().__init__(
+            f"{what} requires a web session — re-run with --auth web "
+            f"(API tokens cannot reach it)"
+        )
+        self.what = what
+
+
+def require_web_session(session: object, what: str) -> WebSession:
+    """Return `session` if it is a web session, else raise `WebSessionRequired`."""
+    if not isinstance(session, WebSession):
+        raise WebSessionRequired(what)
+    return session
+
+
 class WebSession:
     """Web session using cookies and context ID.
 

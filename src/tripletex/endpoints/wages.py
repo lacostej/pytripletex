@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from tripletex.endpoints._paging import paginate
 from tripletex.models import CompanyWageSettings, EmployeeSalary
 from tripletex.parsers.html import parse_salary_html, parse_wage_settings_html
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -20,6 +21,8 @@ async def fetch_employee_list(client: TripletexClient) -> list[dict]:
     POST /v2/salary/employee/overview/details
     Returns raw dicts with: id, displayName, hasResigned, number, etc.
     """
+    require_web_session(client.session, "The salary employee overview")
+
     params = {
         "fields": "id, displayName, hasResigned, number, currentCompanyEmployeeRate(id, hourlyRate, hourlyCost)",
         "employeeAvailability": "ACTIVE",
@@ -42,7 +45,8 @@ async def fetch_employee_salary(
 
     GET /execute/employeeSalary?employeeId=X&scope=employeeSalary&contextId=Y
     """
-    context_id = client.session.context_id
+    session = require_web_session(client.session, "Employee salary pages")
+    context_id = session.context_id
     html = await client.get_html(
         "/execute/employeeSalary",
         params={
@@ -61,7 +65,8 @@ async def fetch_company_wage_settings(
 
     GET /execute/wageSettings?scope=wageSettingsTab&contextId=X
     """
-    context_id = client.session.context_id
+    session = require_web_session(client.session, "Company wage settings")
+    context_id = session.context_id
     html = await client.get_html(
         "/execute/wageSettings",
         params={

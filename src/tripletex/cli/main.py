@@ -9,6 +9,7 @@ import sys
 import click
 
 from tripletex.config import load_config
+from tripletex.session import WebSessionRequired, require_web_session
 
 
 @click.group()
@@ -66,9 +67,7 @@ class _CompanyClientWrapper:
         client = await self._client.__aenter__()
         company_name = self._ctx.obj.get("company_name")
         if company_name:
-            from tripletex.session import WebSession
-            if not isinstance(client.session, WebSession):
-                raise click.ClickException("--company requires web auth (use --auth web)")
+            require_web_session(client.session, "--company")
             companies = await client.list_companies()
             match = [c for c in companies if company_name.lower() in c.display_name.lower()]
             if not match:
@@ -92,8 +91,16 @@ def _client(ctx):
 
 
 def run_async(coro):
-    """Run an async function from a sync Click command."""
-    return asyncio.run(coro)
+    """Run an async function from a sync Click command.
+
+    Turns the one library error users routinely hit — asking for a web-only
+    feature under API-token auth — into a plain CLI message instead of a
+    traceback.
+    """
+    try:
+        return asyncio.run(coro)
+    except WebSessionRequired as e:
+        raise click.ClickException(str(e)) from e
 
 
 # --- Login ---
@@ -159,6 +166,7 @@ def reconciliation_unreconciled(ctx, month, company):
         end = date_cls(year, mon, calendar.monthrange(year, mon)[1])
 
         async with _client(ctx) as client:
+            require_web_session(client.session, "Reconciliation across companies")
             async for comp, comp_client in client.iter_companies():
                 if company and company.lower() not in comp.display_name.lower():
                     continue
@@ -209,6 +217,7 @@ def payments_list(ctx, due_within, status, company, notify_slack):
         output_lines: list[str] = []
 
         async with _client(ctx) as client:
+            require_web_session(client.session, "Listing bank payments")
             async for comp, comp_client in client.iter_companies():
                 if company and company.lower() not in comp.display_name.lower():
                     continue
@@ -303,6 +312,7 @@ def inbox(ctx, company):
 
     async def _inbox():
         async with _client(ctx) as client:
+            require_web_session(client.session, "The voucher inbox")
             async for comp, comp_client in client.iter_companies():
                 if company and company.lower() not in comp.display_name.lower():
                     continue
@@ -440,6 +450,7 @@ def employee_access(ctx, show_all, include_inactive):
 
     async def _access():
         async with _client(ctx) as client:
+            require_web_session(client.session, "Checking employee login access")
             today = date.today()
             employees = await list_employees(client)
             if not include_inactive:

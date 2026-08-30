@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from pydantic import BaseModel, Field
 
 from tripletex.endpoints._paging import paginate
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -56,6 +57,8 @@ async def list_inbox(
     GET /v2/voucherInbox/inboxFiltered. Returns the whole inbox unless `limit`
     is given; the endpoint serves at most 50 rows per request.
     """
+    require_web_session(client.session, "The voucher inbox")
+
     values = await paginate(
         client,
         "/v2/voucherInbox/inboxFiltered",

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from tripletex.endpoints._paging import paginate
 from tripletex.models import Employee, EmployeeAccess, EmployeeOverview
 from tripletex.parsers.html import parse_employee_privileges_html
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -64,13 +65,6 @@ async def get_employee(
     return Employee.model_validate(data.get("value", data))
 
 
-def _require_web_session(client: TripletexClient, what: str) -> None:
-    from tripletex.session import WebSession
-
-    if not isinstance(client.session, WebSession):
-        raise RuntimeError(f"{what} requires web session auth (use --auth web)")
-
-
 async def fetch_employee_overview(
     client: TripletexClient,
     availability: str = "ALL",
@@ -82,7 +76,7 @@ async def fetch_employee_overview(
     Carries payslip delivery method and `allowLogin`, neither of which the public
     API exposes. API tokens get a 403 from this endpoint.
     """
-    _require_web_session(client, "the salary employee overview")
+    require_web_session(client.session, "The salary employee overview")
 
     values = await paginate(
         client,
@@ -106,7 +100,7 @@ async def fetch_employee_access(
 
     GET /execute/updateEmployeePrivileges?employeeId=X&scope=updateEmployeePrivileges
     """
-    _require_web_session(client, "employee access")
+    require_web_session(client.session, "Employee login access")
 
     html = await client.get_html(
         "/execute/updateEmployeePrivileges",

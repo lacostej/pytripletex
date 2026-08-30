@@ -11,7 +11,7 @@ import httpx
 
 from tripletex.config import TripletexConfig
 from tripletex.models import Company
-from tripletex.session import ApiSession, Session, WebSession
+from tripletex.session import ApiSession, Session, WebSession, require_web_session
 
 
 class TripletexClient:
@@ -229,9 +229,7 @@ class TripletexClient:
     @asynccontextmanager
     async def company_context(self, company: Company) -> AsyncIterator[TripletexClient]:
         """Context manager that temporarily switches to a different company."""
-        session = self.session
-        if not isinstance(session, WebSession):
-            raise RuntimeError("company_context requires web session auth")
+        session = require_web_session(self.session, "Switching company")
         original_context_id = session.context_id
         session.context_id = str(company.id)
         try:

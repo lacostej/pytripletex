@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from tripletex.endpoints._paging import paginate
 from tripletex.models import VoucherMeta
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -66,7 +67,8 @@ async def download_voucher_document(
 
     GET /execute/document?act=view&id=X&contextId=Y
     """
-    context_id = client.session.context_id
+    session = require_web_session(client.session, "Downloading voucher documents")
+    context_id = session.context_id
     return await client.download(
         "/execute/document",
         params={"act": "view", "id": str(document_id), "contextId": context_id},

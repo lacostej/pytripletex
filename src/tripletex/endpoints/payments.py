@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from pydantic import BaseModel, Field
 
 from tripletex.endpoints._paging import paginate
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -73,6 +74,8 @@ async def list_payments(
         status_filter: "FOR_APPROVAL", "APPROVED", "SENT_TO_BANK", "RECEIVED_BY_BANK", etc.
         limit: Max results to fetch (default: every match)
     """
+    require_web_session(client.session, "Listing bank payments")
+
     params = {
         "fields": _PAYMENT_FIELDS,
         "sortField": "paymentDate",
