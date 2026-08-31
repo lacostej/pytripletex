@@ -9,3 +9,4 @@ build/
 tests/live_test.sh
 docs/TODO.md
 docs/adapter-notes.md
+docs/api-gaps.md
