@@ -170,3 +170,21 @@ async def test_non_posted_queue_sends_the_filters_the_endpoint_expects():
     assert vouchers[0].number == 0
     assert vouchers[0].temp_number == 17471
     assert vouchers[0].display_number == "T17471"
+
+
+async def test_reception_listing_hits_the_documented_endpoint():
+    from tripletex.endpoints.vouchers import list_reception_vouchers
+
+    client = RecordingClient([
+        {"id": 673865149, "number": 0, "tempNumber": 17483, "date": "2026-08-30",
+         "description": "Faktura nummer 24007 fra Villa Import AS",
+         "attachment": {"id": 1158950306, "fileName": "invoice-24007.pdf"}},
+    ])
+    vouchers = await list_reception_vouchers(client, search_text="Villa")
+
+    assert client.path == "/v2/ledger/voucher/>voucherReception"
+    assert client.params["searchText"] == "Villa"
+    # Reception rows are unposted, so the temp number is the identity, and the
+    # attachment is what distinguishes them from the >nonPosted queue.
+    assert vouchers[0].display_number == "T17483"
+    assert vouchers[0].document_ids == [1158950306]

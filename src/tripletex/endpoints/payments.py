@@ -15,6 +15,41 @@ if TYPE_CHECKING:
     from tripletex.client import TripletexClient
 
 
+# Values `statusFilter` accepts, established by probing: anything else is rejected
+# with a 422 whose message ("Listen med verdier må være kommaseparert") does not
+# enumerate the alternatives. APPROVED and SENT_TO_BANK are NOT valid, despite
+# looking plausible.
+PAYMENT_STATUSES = (
+    "FOR_APPROVAL",
+    "UNDER_PROCESSING",
+    "CANCELLED",
+    "REJECTED_BY_THE_BANK",
+    "PAID",
+)
+
+# Everything still in flight — i.e. every status except PAID.
+OPEN_PAYMENT_STATUSES = (
+    "CANCELLED",
+    "REJECTED_BY_THE_BANK",
+    "FOR_APPROVAL",
+    "UNDER_PROCESSING",
+)
+
+
+def validate_status_filter(status_filter: str) -> str:
+    """Check a comma-separated `statusFilter` before spending a request on it."""
+    unknown = [
+        s for s in (x.strip() for x in status_filter.split(","))
+        if s and s not in PAYMENT_STATUSES
+    ]
+    if unknown:
+        raise ValueError(
+            f"Unknown payment status {', '.join(unknown)}. "
+            f"Valid values: {', '.join(PAYMENT_STATUSES)}"
+        )
+    return status_filter
+
+
 _PAYMENT_FIELDS = (
     "*,"
     "account(id,number,bankAccountIBAN,bankAccountNumber,currency(id,code)),"
@@ -75,6 +110,7 @@ async def list_payments(
         limit: Max results to fetch (default: every match)
     """
     require_web_session(client.session, "Listing bank payments")
+    validate_status_filter(status_filter)
 
     params = {
         "fields": _PAYMENT_FIELDS,

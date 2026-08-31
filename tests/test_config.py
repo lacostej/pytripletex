@@ -89,3 +89,27 @@ consumer_token = "c"
 """)
         with pytest.raises(ValueError, match="BH.salaries"):
             load_config(config_path=path, env_name="BH")
+
+
+class TestPaymentStatusFilter:
+    """APPROVED and SENT_TO_BANK look plausible but the API rejects them with a 422."""
+
+    def test_valid_values_pass(self):
+        from tripletex.endpoints.payments import PAYMENT_STATUSES, validate_status_filter
+
+        for status in PAYMENT_STATUSES:
+            assert validate_status_filter(status) == status
+        assert validate_status_filter("FOR_APPROVAL,PAID")
+
+    def test_plausible_but_invalid_values_are_rejected_locally(self):
+        from tripletex.endpoints.payments import validate_status_filter
+
+        for status in ("APPROVED", "SENT_TO_BANK", "RECEIVED_BY_BANK"):
+            with pytest.raises(ValueError, match="Unknown payment status"):
+                validate_status_filter(status)
+
+    def test_error_names_the_valid_values(self):
+        from tripletex.endpoints.payments import validate_status_filter
+
+        with pytest.raises(ValueError, match="FOR_APPROVAL"):
+            validate_status_filter("FOR_APPROVAL,NONSENSE")

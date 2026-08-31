@@ -124,6 +124,7 @@ tripletex reconciliation unreconciled --month 2026-03
 # Vouchers
 tripletex vouchers list --from 2026-08-01 --to 2026-09-01 [--json]
 tripletex vouchers queue [--json]     # registered but not yet posted
+tripletex vouchers reception [--json] # documents in bilagsmottak
 tripletex vouchers backup --output-dir ./backup --from 2025-01-01 --to 2025-12-31
 
 # Employee wages

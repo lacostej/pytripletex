@@ -56,6 +56,11 @@ async def list_inbox(
 
     GET /v2/voucherInbox/inboxFiltered. Returns the whole inbox unless `limit`
     is given; the endpoint serves at most 50 rows per request.
+
+    Web session only. `endpoints.vouchers.list_reception_vouchers` returns the
+    same rows through a documented endpoint that accepts API tokens, but without
+    this object's triage metadata (`receivedDate`, `invoiceAmount`,
+    `supplierName`, `filterType`).
     """
     require_web_session(client.session, "The voucher inbox")
 

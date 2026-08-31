@@ -197,7 +197,7 @@ def payments():
 
 @payments.command("list")
 @click.option("--due-within", default=None, type=int, help="Only show payments due within N days")
-@click.option("--status", default="FOR_APPROVAL", help="Status filter: FOR_APPROVAL, APPROVED, SENT_TO_BANK, ALL, or comma-separated")
+@click.option("--status", default="FOR_APPROVAL", help="FOR_APPROVAL, UNDER_PROCESSING, CANCELLED, REJECTED_BY_THE_BANK, PAID, ALL (every status but PAID), or comma-separated")
 @click.option("--company", default=None, help="Filter to one company name")
 @click.option("--notify-slack", is_flag=True, help="Send results to Slack webhook")
 @click.pass_context
@@ -211,8 +211,18 @@ def payments_list(ctx, due_within, status, company, notify_slack):
         config = ctx.obj["config"]
         limit = date_cls.today() + timedelta(days=due_within) if due_within is not None else None
 
-        _ALL_STATUSES = "CANCELLED,REJECTED_BY_THE_BANK,FOR_APPROVAL,UNDER_PROCESSING"
-        status_value = _ALL_STATUSES if status.upper() == "ALL" else status
+        from tripletex.endpoints.payments import (
+            OPEN_PAYMENT_STATUSES,
+            validate_status_filter,
+        )
+
+        status_value = (
+            ",".join(OPEN_PAYMENT_STATUSES) if status.upper() == "ALL" else status.upper()
+        )
+        try:
+            validate_status_filter(status_value)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
 
         output_lines: list[str] = []
 
@@ -331,6 +341,35 @@ def vouchers_queue(ctx, as_json):
             click.echo(f"\n{len(voucher_list)} vouchers waiting to be processed")
 
     run_async(_queue())
+
+
+@vouchers.command("reception")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of columns")
+@click.pass_context
+def vouchers_reception(ctx, as_json):
+    """List documents in voucher reception — bilagsmottak (works with API tokens).
+
+    Same rows as the web-only voucher inbox, without its triage metadata
+    (arrival timestamp, amount, supplier, channel).
+    """
+    from datetime import date
+
+    from tripletex.endpoints.vouchers import list_reception_vouchers
+
+    async def _reception():
+        async with _client(ctx) as client:
+            voucher_list = await list_reception_vouchers(client)
+            if as_json:
+                click.echo(_vouchers_json(voucher_list))
+                return
+            for v in sorted(voucher_list, key=lambda v: (v.date or date.min, v.id)):
+                docs = str(len(v.document_ids)) if v.document_ids else ""
+                click.echo(
+                    f"{v.id}\t{v.date or ''}\t{v.display_number}\t{docs}\t{v.description or ''}"
+                )
+            click.echo(f"\n{len(voucher_list)} documents in reception")
+
+    run_async(_reception())
 
 
 @vouchers.command("backup")

@@ -89,6 +89,35 @@ async def list_non_posted_vouchers(
     return [_to_meta(v) for v in data.get("values", [])]
 
 
+async def list_reception_vouchers(
+    client: TripletexClient,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search_text: str | None = None,
+) -> list[VoucherMeta]:
+    """Documents sitting in voucher reception — bilagsmottak.
+
+    GET /v2/ledger/voucher/>voucherReception. Returns the same rows as the
+    web-only voucher inbox (`endpoints.inbox.list_inbox`), verified item-for-item,
+    but as plain Voucher objects: no `receivedDate`, `invoiceAmount`,
+    `supplierName` or `filterType`. Use this for counting and for anything
+    headless; use `list_inbox` when the triage metadata matters.
+
+    Like `>nonPosted`, this endpoint ignores `from`/`count` and returns the whole
+    set, so it is fetched in a single request.
+    """
+    params: dict[str, str] = {"fields": _VOUCHER_FIELDS}
+    if date_from:
+        params["dateFrom"] = date_from.isoformat()
+    if date_to:
+        params["dateTo"] = date_to.isoformat()
+    if search_text:
+        params["searchText"] = search_text
+
+    data = await client.get_json("/v2/ledger/voucher/>voucherReception", params=params)
+    return [_to_meta(v) for v in data.get("values", [])]
+
+
 async def download_voucher_document(
     client: TripletexClient,
     document_id: int,
