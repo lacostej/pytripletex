@@ -11,7 +11,13 @@ import httpx
 
 from tripletex.config import TripletexConfig
 from tripletex.models import Company
-from tripletex.session import ApiSession, Session, WebSession, require_web_session
+from tripletex.session import (
+    ApiSession,
+    CompanyMismatch,
+    Session,
+    WebSession,
+    require_web_session,
+)
 
 
 class TripletexClient:
@@ -63,6 +69,32 @@ class TripletexClient:
             await self._authenticate_api()
         else:
             await self._authenticate_web()
+
+        await self._verify_company()
+
+    async def _verify_company(self) -> None:
+        """Check we landed in the company the config expects.
+
+        Opt-in: sections without `company_id` are not checked. Costs one extra
+        request under token auth and none under a web session, where the context
+        id already names the company.
+        """
+        expected = self.config.company_id
+        if expected is None:
+            return
+
+        session = self.session
+        if isinstance(session, WebSession):
+            try:
+                actual: int | None = int(session.context_id)
+            except (TypeError, ValueError):
+                actual = None
+        else:
+            data = await self.get_json("/v2/token/session/>whoAmI")
+            actual = (data.get("value") or {}).get("companyId")
+
+        if actual != expected:
+            raise CompanyMismatch(expected, actual, self.config.env_name)
 
     def _detect_auth_mode(self) -> str:
         """Auto-detect: use API if tokens are configured, otherwise web."""

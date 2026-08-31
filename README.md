@@ -33,6 +33,27 @@ consumer_token = "..."
 employee_token = "..."
 ```
 
+Add `company_id` to any section to assert which company its credentials reach.
+It is checked at authentication time, so a mistyped `--env`, a re-pointed section
+or a token copied between companies fails immediately instead of quietly reading
+the wrong company's books:
+
+```toml
+[BH]
+company_id = 32611682        # from /v2/token/session/>whoAmI
+consumer_token = "..."
+employee_token = "..."
+```
+
+```
+Error: 'BH' authenticates to company 56801690, but the config declares
+company_id 32611682. Check the section's tokens, or drop company_id if the
+move was intended.
+```
+
+It is an id rather than a name because companies get renamed and ids do not.
+Sections without `company_id` are not checked.
+
 Each section is a user account. If you have multiple logins, add named sections:
 
 ```toml

@@ -23,6 +23,12 @@ class TripletexConfig(BaseModel):
     consumer_token: str | None = None
     employee_token: str | None = None
 
+    # Optional guard: the company these credentials are expected to reach.
+    # Checked at authentication time, so a mistyped or re-pointed section fails
+    # loudly instead of quietly reading another company's books. Deliberately an
+    # id and not a name — companies get renamed, ids do not.
+    company_id: int | None = None
+
     # Manual session overrides (skip login, use browser cookies)
     cookie: str | None = None
     csrf_token: str | None = None
@@ -109,6 +115,7 @@ def load_config(
         "TRIPLETEX_CSRF_TOKEN": "csrf_token",
         "TRIPLETEX_CONTEXT_ID": "context_id",
         "TRIPLETEX_BASE_URL": "base_url",
+        "TRIPLETEX_COMPANY_ID": "company_id",
         "TRIPLETEX_SLACK_WEBHOOK_URL": "slack_webhook_url",
     }
     env_values = {}

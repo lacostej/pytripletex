@@ -40,6 +40,26 @@ class InteractiveLoginRequired(AuthUnavailable):
         self.env_name = env_name
 
 
+class CompanyMismatch(AuthUnavailable):
+    """The credentials work, but they reach a different company than configured.
+
+    Guards against the quiet failures: a renamed config section, a token copied
+    between companies, an `--env` that fell through to another set of credentials.
+    """
+
+    def __init__(
+        self, expected: int, actual: int | None, env_name: str | None = None
+    ) -> None:
+        env = f"'{env_name}'" if env_name else "The configured credentials"
+        super().__init__(
+            f"{env} authenticates to company {actual}, but the config declares "
+            f"company_id {expected}. Check the section's tokens, or drop "
+            f"company_id if the move was intended."
+        )
+        self.expected = expected
+        self.actual = actual
+
+
 class WebSessionRequired(AuthUnavailable):
     """An operation needs cookie/context auth that API tokens cannot provide.
 

@@ -114,3 +114,53 @@ async def test_expired_session_without_a_terminal_raises_instead_of_prompting(mo
     assert "tripletex --env prod login" in message
     # The CLI catches the shared base, so both auth failures render the same way.
     assert isinstance(excinfo.value, AuthUnavailable)
+
+
+class _StubClient(TripletexClient):
+    """Client whose whoAmI answer is canned, so no network is needed."""
+
+    def __init__(self, config, company_id):
+        super().__init__(config)
+        self._who = company_id
+
+    async def get_json(self, path, params=None):
+        assert path == "/v2/token/session/>whoAmI"
+        return {"value": {"companyId": self._who}}
+
+
+async def test_company_id_mismatch_is_rejected_under_token_auth():
+    from tripletex.session import CompanyMismatch
+
+    client = _StubClient(TripletexConfig(company_id=32611682, env_name="BH"), 56801690)
+    client._session = ApiSession(session_token="t", company_id=0)
+    with pytest.raises(CompanyMismatch) as excinfo:
+        await client._verify_company()
+    assert "'BH'" in str(excinfo.value)
+    assert "56801690" in str(excinfo.value) and "32611682" in str(excinfo.value)
+
+
+async def test_matching_company_id_passes():
+    client = _StubClient(TripletexConfig(company_id=32611682), 32611682)
+    client._session = ApiSession(session_token="t", company_id=0)
+    await client._verify_company()  # no raise
+
+
+async def test_check_is_opt_in():
+    # No company_id configured — no whoAmI call, so the stub's assert never runs.
+    client = TripletexClient(TripletexConfig())
+    client._session = ApiSession(session_token="t", company_id=0)
+    await client._verify_company()
+
+
+async def test_web_session_is_checked_against_context_id_without_a_request():
+    import httpx
+
+    from tripletex.session import CompanyMismatch, WebSession
+
+    client = TripletexClient(TripletexConfig(company_id=32611682))
+    client._session = WebSession(cookies=httpx.Cookies(), context_id="32611682")
+    await client._verify_company()
+
+    client._session = WebSession(cookies=httpx.Cookies(), context_id="56801690")
+    with pytest.raises(CompanyMismatch):
+        await client._verify_company()
