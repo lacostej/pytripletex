@@ -11,6 +11,7 @@ import httpx
 
 from tripletex.config import TripletexConfig
 from tripletex.models import Company
+from tripletex.rate_limit import RateLimiter, send
 from tripletex.session import (
     ApiSession,
     AuthUnavailable,
@@ -40,6 +41,7 @@ class TripletexClient:
         self._auth_mode = auth_mode  # "web", "api", or None (auto-detect)
         self._session: Session | None = None
         self._http: httpx.AsyncClient | None = None
+        self._limiter: RateLimiter | None = None
 
     @classmethod
     def web(cls, config: TripletexConfig) -> TripletexClient:
@@ -56,6 +58,19 @@ class TripletexClient:
         if self._session is None:
             raise RuntimeError("Not authenticated. Call authenticate() first.")
         return self._session
+
+    @property
+    def limiter(self) -> RateLimiter:
+        """Paces this client's requests. One per client, since the quota is
+        counted per token. Replace it before the first request to share one
+        limiter across clients on the same credential."""
+        if self._limiter is None:
+            self._limiter = RateLimiter()
+        return self._limiter
+
+    @limiter.setter
+    def limiter(self, limiter: RateLimiter) -> None:
+        self._limiter = limiter
 
     @property
     def http(self) -> httpx.AsyncClient:
@@ -234,7 +249,9 @@ class TripletexClient:
         if json_body is not None:
             kwargs["json"] = json_body
 
-        response = await self.http.request(method, path, **kwargs)
+        # Paced against the token's quota, and retried on 429/5xx. `send` does
+        # not raise for status, so the 401 branch below still owns that call.
+        response = await send(self.http, self.limiter, method, path, **kwargs)
         # A 401 on a web session means it died mid-run. Surface it as a typed
         # auth failure so an unattended caller can tell "get a human" from a
         # transient HTTP failure, instead of matching on a status code.
@@ -297,7 +314,12 @@ class TripletexClient:
         if self.session.request_auth() is not None:
             kwargs["auth"] = self.session.request_auth()
 
+        # Paced like any other request — voucher backup downloads documents in a
+        # loop, which is exactly the workload that exhausts the quota. Not
+        # retried: the body is consumed lazily, so there is nothing to replay.
+        await self.limiter.acquire()
         async with self.http.stream("GET", path, params=params, **kwargs) as response:
+            self.limiter.observe(response.headers)
             response.raise_for_status()
             with open(dest, "wb") as f:
                 async for chunk in response.aiter_bytes():
