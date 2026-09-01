@@ -511,6 +511,39 @@ wheels = [
 ]
 
 [[package]]
+name = "pytripletex"
+source = { editable = "." }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "lxml" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12" },
+    { name = "click", specifier = ">=8.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "lxml", specifier = ">=5.0" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "respx"
 version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
@@ -584,39 +617,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/cd/e80b62269fc78fc36c9af5a6b89c835baa8af28ff5ad28c7028d60860320/tomli-2.4.1-cp314-cp314t-win_arm64.whl", hash = "sha256:eab21f45c7f66c13f2a9e0e1535309cee140182a9cdae1e041d02e47291e8396", size = 100393, upload-time = "2026-03-25T20:22:02.137Z" },
     { url = "https://files.pythonhosted.org/packages/7b/61/cceae43728b7de99d9b847560c262873a1f6c98202171fd5ed62640b494b/tomli-2.4.1-py3-none-any.whl", hash = "sha256:0d85819802132122da43cb86656f8d1f8c6587d54ae7dcaf30e90533028b49fe", size = 14583, upload-time = "2026-03-25T20:22:03.012Z" },
 ]
-
-[[package]]
-name = "tripletex"
-source = { editable = "." }
-dependencies = [
-    { name = "beautifulsoup4" },
-    { name = "click" },
-    { name = "httpx" },
-    { name = "lxml" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "respx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beautifulsoup4", specifier = ">=4.12" },
-    { name = "click", specifier = ">=8.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "lxml", specifier = ">=5.0" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "typing-extensions"

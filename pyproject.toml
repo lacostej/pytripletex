@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tripletex"
+name = "pytripletex"
 dynamic = ["version"]
 description = "Python client for Tripletex accounting (web scraping + internal APIs)"
 requires-python = ">=3.11"
