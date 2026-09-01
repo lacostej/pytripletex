@@ -2,13 +2,46 @@
 
 from __future__ import annotations
 
-import base64
+import http.cookiejar
 import json
-import pickle
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
+
+#: Version of the persisted web-session format.
+#:
+#: Version 1 stored cookies as a base64 pickle and was read back with
+#: ``pickle.loads``. That was inert while the file stayed local and user-owned,
+#: but session state is meant to travel — a browser-based refresh flow hands a
+#: session to a service — and unpickling transported state is remote code
+#: execution in the process holding the Tripletex credentials.
+#:
+#: Version 2 serialises cookie fields explicitly. Version 1 files are refused
+#: rather than migrated: reading one would mean unpickling it, which is the
+#: thing being removed. The cost is a single interactive login.
+SESSION_FORMAT_VERSION = 2
+
+
+class SessionStatus(Enum):
+    """Whether a web session can be used, and if not, what is needed.
+
+    Returned by `TripletexClient.session_status()`. A value is a *definitive*
+    answer; a transient failure raises `httpx.RequestError` instead, so callers
+    can tell "this session is dead, get a human" from "the network is having a
+    bad day, try later" without inspecting exception strings.
+    """
+
+    VALID = "valid"
+    """The session authenticates and can be used."""
+
+    EXPIRED = "expired"
+    """Session state exists but Tripletex rejects it. Needs a human to log in."""
+
+    NEEDS_INTERACTIVE_LOGIN = "needs_interactive_login"
+    """There is no session state at all to check."""
 
 
 class Session(Protocol):
@@ -37,6 +70,24 @@ class InteractiveLoginRequired(AuthUnavailable):
             "but stdin is not a terminal. Refresh it from a terminal with: "
             f"tripletex{env} login"
         )
+        self.env_name = env_name
+
+
+class SessionExpired(AuthUnavailable):
+    """A web session was accepted at startup but died mid-run.
+
+    Raised instead of a bare `httpx.HTTPStatusError` so an unattended caller can
+    distinguish "the session needs a human" — which no amount of retrying fixes —
+    from a transient HTTP failure, which retrying does fix.
+    """
+
+    def __init__(self, path: str, env_name: str | None = None) -> None:
+        env = f" --env {env_name}" if env_name else ""
+        super().__init__(
+            f"The web session was rejected by {path} (401). It has expired "
+            f"mid-run. Refresh it from a terminal with: tripletex{env} login"
+        )
+        self.path = path
         self.env_name = env_name
 
 
@@ -77,6 +128,73 @@ class WebSessionRequired(AuthUnavailable):
         self.what = what
 
 
+def _cookie_to_dict(cookie: http.cookiejar.Cookie) -> dict[str, Any]:
+    """Flatten a cookie to plain data — no pickle, inspectable, versionable."""
+    return {
+        "name": cookie.name,
+        "value": cookie.value,
+        "domain": cookie.domain,
+        "path": cookie.path,
+        "secure": cookie.secure,
+        "expires": cookie.expires,
+        "version": cookie.version,
+        "port": cookie.port,
+        "discard": cookie.discard,
+        # Carries HttpOnly, which the server sets on the session cookies.
+        "rest": dict(cookie._rest or {}),
+    }
+
+
+def _cookie_from_dict(data: Any) -> http.cookiejar.Cookie | None:
+    """Rebuild a cookie from `_cookie_to_dict` output, or None if malformed."""
+    if not isinstance(data, dict):
+        return None
+    name, value = data.get("name"), data.get("value")
+    domain, path = data.get("domain"), data.get("path")
+    if not isinstance(name, str) or not isinstance(domain, str):
+        return None
+    if not isinstance(path, str):
+        return None
+
+    port = data.get("port")
+    rest = data.get("rest")
+    return http.cookiejar.Cookie(
+        version=data.get("version") or 0,
+        name=name,
+        value=value if isinstance(value, str) else None,
+        port=port if isinstance(port, str) else None,
+        port_specified=isinstance(port, str),
+        domain=domain,
+        # A leading dot means the cookie was sent for a whole domain rather than
+        # one host; both flags are derived from it rather than stored twice.
+        domain_specified=domain.startswith("."),
+        domain_initial_dot=domain.startswith("."),
+        path=path,
+        path_specified=True,
+        secure=bool(data.get("secure")),
+        expires=data.get("expires"),
+        discard=bool(data.get("discard")),
+        comment=None,
+        comment_url=None,
+        rest=rest if isinstance(rest, dict) else {},
+    )
+
+
+def _parse_timestamp(raw: Any) -> datetime | None:
+    """Parse an ISO timestamp, tolerating absence and malformed values."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    # A naive timestamp from an older writer is assumed UTC, so `age` cannot
+    # raise on a mixed-awareness subtraction.
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def require_web_session(session: object, what: str) -> WebSession:
     """Return `session` if it is a web session, else raise `WebSessionRequired`."""
     if not isinstance(session, WebSession):
@@ -97,9 +215,19 @@ class WebSession:
         self,
         cookies: httpx.Cookies,
         context_id: str,
+        created_at: datetime | None = None,
     ) -> None:
         self.cookies = cookies
         self.context_id = context_id
+        #: When this session was established. Observed lifetimes range from about
+        #: a day to about three months and the real TTL is unknown, so recording
+        #: this is the only way anyone learns the actual distribution.
+        self.created_at = created_at or datetime.now(timezone.utc)
+
+    @property
+    def age(self) -> "timedelta":
+        """How long ago this session was established."""
+        return datetime.now(timezone.utc) - self.created_at
 
     def request_headers(self, url: str, *, for_json: bool = True) -> dict[str, str]:
         # Import here to avoid a circular import (auth.visma_connect imports
@@ -125,40 +253,61 @@ class WebSession:
     def request_auth(self) -> httpx.Auth | None:
         return None
 
-    def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Pickle a list of http.cookiejar.Cookie objects — they serialize
-        # cleanly (domain, path, secure, expires, ...). We don't pickle the
-        # CookieJar itself because it holds a non-picklable RLock.
-        cookies_blob = base64.b64encode(
-            pickle.dumps(list(self.cookies.jar))
-        ).decode("ascii")
-        data = {
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to plain JSON-safe data, independent of where it is stored.
+
+        This is the transport format: a session established by a human in a
+        browser can be handed to a service as data, without either end sharing a
+        filesystem. `save()` is a thin wrapper that writes it to a file.
+        """
+        return {
+            "version": SESSION_FORMAT_VERSION,
             "type": "web",
             "context_id": self.context_id,
-            "cookies": cookies_blob,
+            "created_at": self.created_at.isoformat(),
+            "cookies": [_cookie_to_dict(c) for c in self.cookies.jar],
         }
-        path.write_text(json.dumps(data, indent=2))
+
+    @classmethod
+    def from_dict(cls, data: Any) -> WebSession | None:
+        """Rebuild from `to_dict()` output. Returns None if the data is unusable.
+
+        Refuses version 1 (the pickled format) rather than migrating it — reading
+        one would require the `pickle.loads` this format exists to remove.
+        """
+        if not isinstance(data, dict):
+            return None
+        if data.get("type", "web") != "web":
+            return None
+        if data.get("version") != SESSION_FORMAT_VERSION:
+            # Includes the unversioned v1 pickle format.
+            return None
+        context_id = data.get("context_id")
+        raw_cookies = data.get("cookies")
+        if not isinstance(context_id, str) or not isinstance(raw_cookies, list):
+            return None
+
+        cookies = httpx.Cookies()
+        for raw in raw_cookies:
+            cookie = _cookie_from_dict(raw)
+            if cookie is None:
+                return None
+            cookies.jar.set_cookie(cookie)
+
+        created_at = _parse_timestamp(data.get("created_at"))
+        return cls(cookies=cookies, context_id=context_id, created_at=created_at)
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.to_dict(), indent=2))
 
     @classmethod
     def load(cls, path: Path) -> WebSession | None:
         if not path.exists():
             return None
         try:
-            data = json.loads(path.read_text())
-            if data.get("type", "web") != "web":
-                return None
-            cookies_data = data.get("cookies")
-            if not isinstance(cookies_data, str):
-                return None
-            cookies = httpx.Cookies()
-            for cookie in pickle.loads(base64.b64decode(cookies_data)):
-                cookies.jar.set_cookie(cookie)
-            return cls(
-                cookies=cookies,
-                context_id=data["context_id"],
-            )
-        except (json.JSONDecodeError, KeyError, pickle.UnpicklingError, ValueError):
+            return cls.from_dict(json.loads(path.read_text()))
+        except (json.JSONDecodeError, ValueError):
             return None
 
 

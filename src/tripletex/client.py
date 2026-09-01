@@ -13,11 +13,17 @@ from tripletex.config import TripletexConfig
 from tripletex.models import Company
 from tripletex.session import (
     ApiSession,
+    AuthUnavailable,
     CompanyMismatch,
     Session,
+    SessionExpired,
+    SessionStatus,
     WebSession,
     require_web_session,
 )
+
+#: Cheap authenticated endpoint used to probe whether a session still works.
+_SESSION_PROBE_PATH = "/v2/internal/company-chooser"
 
 
 class TripletexClient:
@@ -142,12 +148,55 @@ class TripletexClient:
         self._session = await visma_connect_login(self.config, self.http)
         self._session.save(session_path)
 
-    async def _validate_web_session(self) -> bool:
-        """Check if current web session is still valid."""
+    async def session_status(self) -> SessionStatus:
+        """Report whether the current session is usable, and if not, why.
+
+        Costs one lightweight request and **never blocks on stdin**, so a
+        scheduler can call it to decide whether a human is needed before doing
+        any real work. This is the signal that tells an operator a dashboard row
+        has stopped being true.
+
+        Returns a `SessionStatus` for any *definitive* answer. A transient
+        failure — network error, or an unexpected status from the probe — is
+        raised rather than reported, so "this session is dead" and "the network
+        is having a bad day" are never conflated:
+
+            try:
+                status = await client.session_status()
+            except (httpx.RequestError, httpx.HTTPStatusError):
+                ...  # transient: retry later
+            else:
+                if status is not SessionStatus.VALID:
+                    ...  # a human must log in
+        """
+        session = self._session
+        if session is None:
+            session = WebSession.load(self._session_path())
+            if session is None:
+                return SessionStatus.NEEDS_INTERACTIVE_LOGIN
+            self._session = session
+
         try:
-            result = await self.get_json("/v2/internal/company-chooser")
-            return result.get("status") != 401
-        except (httpx.HTTPStatusError, httpx.RequestError):
+            await self.get_json(_SESSION_PROBE_PATH)
+        except SessionExpired:
+            return SessionStatus.EXPIRED
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                return SessionStatus.EXPIRED
+            raise
+        return SessionStatus.VALID
+
+    async def _validate_web_session(self) -> bool:
+        """Whether the current web session works, collapsing every failure.
+
+        Used by the login flow, which only needs to decide between "reuse the
+        stored session" and "log in again" — a transient failure and an expired
+        session both mean the latter. Callers that need to tell those apart want
+        `session_status()`.
+        """
+        try:
+            return await self.session_status() is SessionStatus.VALID
+        except (httpx.HTTPStatusError, httpx.RequestError, AuthUnavailable):
             return False
 
     async def ensure_session(self) -> None:
@@ -186,6 +235,11 @@ class TripletexClient:
             kwargs["json"] = json_body
 
         response = await self.http.request(method, path, **kwargs)
+        # A 401 on a web session means it died mid-run. Surface it as a typed
+        # auth failure so an unattended caller can tell "get a human" from a
+        # transient HTTP failure, instead of matching on a status code.
+        if response.status_code == 401 and isinstance(self.session, WebSession):
+            raise SessionExpired(path, self.config.env_name)
         response.raise_for_status()
         return response
 
