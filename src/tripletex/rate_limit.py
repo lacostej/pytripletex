@@ -1,9 +1,19 @@
 """Token-bucket pacing for Tripletex, plus retry on 429/5xx.
 
 Originally written for the ops-monitor project and imported here so the CLI
-and any service share one implementation. The quota is counted per token, so
-there is one limiter per client — every query on the same credential shares
-it, which is what stops an `asyncio.gather` fan-out from stampeding.
+and any service share one implementation. There is one limiter per client, so
+every query on the same credential shares it — which is what stops an
+`asyncio.gather` fan-out from stampeding.
+
+Tripletex documents the quota as counted "on the API calls for an employee for
+each API consumer" — so the budget belongs to the *(employee token, consumer
+token)* pair. Clients sharing a consumer token but using different employee
+tokens therefore hold independent budgets, which is what makes one limiter per
+client the right granularity. Two clients built from the *same* credentials
+should share one, hence the settable `limiter` property on the client.
+
+Web sessions are not covered by that statement — they present cookies and a
+context id, never the tokens — so whether they are metered at all is unmeasured.
 
 Measured limits (`docs/adapter-notes.md`): ~100 requests per rolling ~10 s
 window, roughly 10 req/s sustained. Every response carries the current state,
