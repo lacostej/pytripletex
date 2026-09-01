@@ -306,3 +306,63 @@ class TestClientIntegration:
 
         with pytest.raises(SessionExpired):
             await client.get_json("/v2/bank/payment")
+
+
+class TestMultiBucketHeaders:
+    """A web session gets each rate-limit header twice — two overlapping
+    buckets — and httpx joins repeated headers into "200, 50". A bare int()
+    threw on that, so the limiter silently observed nothing on web sessions."""
+
+    async def test_the_tightest_bucket_wins(self, clock: FakeClock) -> None:
+        limiter = _limiter(clock)
+        limiter.observe(
+            {
+                "x-rate-limit-limit": "200, 50",
+                "x-rate-limit-remaining": "198, 49",
+                "x-rate-limit-reset": "5, 0",
+            }
+        )
+        # Smallest budget and remaining; longest wait before it resets.
+        assert (limiter.limit, limiter.remaining) == (50, 49)
+        assert limiter._resets_at == pytest.approx(5.0)
+
+    async def test_single_valued_headers_are_unaffected(
+        self, clock: FakeClock
+    ) -> None:
+        limiter = _limiter(clock)
+        limiter.observe(
+            {
+                "x-rate-limit-limit": "100",
+                "x-rate-limit-remaining": "98",
+                "x-rate-limit-reset": "4",
+            }
+        )
+        assert (limiter.limit, limiter.remaining) == (100, 98)
+
+    async def test_a_multi_bucket_floor_actually_engages(
+        self, clock: FakeClock
+    ) -> None:
+        """The bug that mattered: remaining stayed None, so the floor reserved
+        for interactive users never applied on the web-session path."""
+        limiter = _limiter(clock, floor=20)
+        limiter.observe({"x-rate-limit-remaining": "180, 5", "x-rate-limit-reset": "8, 3"})
+
+        await limiter.acquire()
+
+        assert limiter.remaining == 5
+        assert clock.slept == [pytest.approx(8.0)]
+
+    async def test_partly_unparseable_values_still_yield_a_reading(
+        self, clock: FakeClock
+    ) -> None:
+        limiter = _limiter(clock)
+        limiter.observe({"x-rate-limit-remaining": "40, junk"})
+        assert limiter.remaining == 40
+
+    async def test_wholly_unparseable_keeps_previous_state(
+        self, clock: FakeClock
+    ) -> None:
+        limiter = _limiter(clock)
+        limiter.observe({"x-rate-limit-remaining": "60"})
+        limiter.observe({"x-rate-limit-remaining": "junk, nonsense"})
+        assert limiter.remaining == 60

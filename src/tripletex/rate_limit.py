@@ -141,24 +141,45 @@ class RateLimiter:
 
     def observe(self, headers: Mapping[str, str]) -> None:
         """Update state from a response's rate-limit headers."""
+        # Where a response carries several buckets, pace against the tightest:
+        # the smallest budget and remaining, and the longest wait to reset.
         self.limit = _int_header(headers, "x-rate-limit-limit", self.limit)
         self.remaining = _int_header(headers, "x-rate-limit-remaining", self.remaining)
-        reset = _int_header(headers, "x-rate-limit-reset", None)
+        reset = _int_header(headers, "x-rate-limit-reset", None, worst=max)
         if reset is not None:
             self._resets_at = self._clock() + reset
 
 
 def _int_header(
-    headers: Mapping[str, str], name: str, default: int | None
+    headers: Mapping[str, str], name: str, default: int | None, *, worst: Any = min
 ) -> int | None:
+    """Read a rate-limit header, tolerating more than one value.
+
+    A web session gets these headers **twice** — two overlapping buckets, e.g.
+    `x-rate-limit-limit: 200` and `: 50` — and httpx joins repeated headers into
+    `"200, 50"`. Parsing that with a bare `int()` throws, which silently left
+    the limiter observing nothing at all on web sessions.
+
+    `worst` picks the binding constraint across the buckets: the smallest
+    remaining, the largest reset.
+    """
     raw = headers.get(name)
     if raw is None:
         return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("unparseable %s header: %r", name, raw)
+
+    values = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            values.append(int(part))
+        except ValueError:
+            logger.warning("unparseable value %r in %s header: %r", part, name, raw)
+
+    if not values:
         return default
+    return worst(values)
 
 
 def _retry_after(response: httpx.Response, attempt: int) -> float:
