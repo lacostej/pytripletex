@@ -41,6 +41,24 @@ FALLBACK_COOLDOWN = 10.0
 # does not retry in lockstep.
 DEFAULT_JITTER = 0.1
 
+#: Methods safe to replay after an *ambiguous* failure — one where the server
+#: may have committed the work and then failed while answering. POST is absent
+#: deliberately: this client creates invoices, orders, products and customers,
+#: and Tripletex offers no idempotency key, so a replayed POST can duplicate a
+#: real document. Matches urllib3's `Retry.DEFAULT_ALLOWED_METHODS`.
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE"})
+
+#: Ambiguous failures worth retrying, for an idempotent method. A gateway or an
+#: overloaded backend is transient. A bare 500 is not here: it usually means the
+#: server choked on this specific request — a `fields` combination it dislikes,
+#: say — so retrying repeats a deterministic failure and only adds latency.
+AMBIGUOUS_STATUSES = frozenset({502, 503, 504})
+
+#: Rate limiting is a *refusal*: the request was never processed, so replaying
+#: it cannot duplicate anything. Safe on any method, POST included — which
+#: matters, since being throttled is the condition this module exists for.
+RATE_LIMIT_STATUS = 429
+
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
 Jitter = Callable[[float], float]
@@ -150,6 +168,20 @@ def _retry_after(response: httpx.Response, attempt: int) -> float:
     return float(2**attempt)
 
 
+def should_retry(method: str, status_code: int) -> bool:
+    """Whether a failed attempt may be replayed.
+
+    Turns on the difference between "refused" and "ambiguous": a 429 means the
+    request was never processed, while a 502/503/504 means it might have been.
+    Only the first is safe for a method that changes state.
+    """
+    if status_code == RATE_LIMIT_STATUS:
+        return True
+    if status_code not in AMBIGUOUS_STATUSES:
+        return False
+    return method.upper() in IDEMPOTENT_METHODS
+
+
 async def send(
     client: httpx.AsyncClient,
     limiter: RateLimiter,
@@ -162,11 +194,14 @@ async def send(
 ) -> httpx.Response:
     """Send one request, paced and retried, and return the final response.
 
-    Retries 429 and 5xx up to `max_attempts`. **Does not raise for status** —
-    the caller decides what a status means, which is what lets `_request()`
-    turn a 401 on a web session into `SessionExpired` rather than a bare
-    `HTTPStatusError`. Connection errors and timeouts are not retried; they
-    propagate.
+    Retries up to `max_attempts`, but only what `should_retry` allows: a 429 on
+    any method, and 502/503/504 on idempotent methods alone. A POST is never
+    replayed after an ambiguous failure — it may have created a document.
+
+    **Does not raise for status** — the caller decides what a status means,
+    which is what lets `_request()` turn a 401 on a web session into
+    `SessionExpired` rather than a bare `HTTPStatusError`. Connection errors and
+    timeouts are not retried; they propagate.
     """
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
@@ -178,7 +213,7 @@ async def send(
         response = await client.request(method, url, **kwargs)
         limiter.observe(response.headers)
 
-        if response.status_code != 429 and response.status_code < 500:
+        if not should_retry(method, response.status_code):
             return response
 
         if attempt < max_attempts - 1:

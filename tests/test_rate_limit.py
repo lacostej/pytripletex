@@ -180,6 +180,69 @@ class TestSend:
 
         assert [s for s in clock.slept if s in (1.0, 2.0)] == [1.0, 2.0]
 
+    async def test_a_post_is_never_replayed_after_an_ambiguous_failure(
+        self, clock: FakeClock
+    ) -> None:
+        """The client POSTs to /v2/invoice, /v2/order and /v2/customer. A 503
+        may mean the document was created and the response died on the way
+        back, and Tripletex has no idempotency key, so a replay duplicates it
+        for real."""
+        limiter = _limiter(clock)
+        attempts = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            return httpx.Response(503)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            result = await send(
+                client, limiter, "POST", URL, max_attempts=3, jitter=_no_jitter
+            )
+
+        assert result.status_code == 503
+        assert attempts == 1
+        assert clock.slept == []
+
+    async def test_a_post_is_retried_on_429(self, clock: FakeClock) -> None:
+        """Being throttled is a refusal, not an ambiguous outcome — the request
+        was never processed, so replaying it cannot duplicate anything."""
+        limiter = _limiter(clock)
+        async with _client(
+            httpx.Response(429, headers={"retry-after": "2"}),
+            httpx.Response(200, json={"id": 1}),
+        ) as client:
+            result = await send(
+                client, limiter, "POST", URL, jitter=_no_jitter
+            )
+
+        assert result.status_code == 200
+        assert 2.0 in clock.slept
+
+    @pytest.mark.parametrize("method", ["GET", "HEAD", "PUT", "DELETE"])
+    async def test_idempotent_methods_are_retried_on_503(
+        self, clock: FakeClock, method: str
+    ) -> None:
+        limiter = _limiter(clock)
+        async with _client(
+            httpx.Response(503), httpx.Response(200)
+        ) as client:
+            result = await send(client, limiter, method, URL, jitter=_no_jitter)
+
+        assert result.status_code == 200
+
+    async def test_a_bare_500_is_not_retried(self, clock: FakeClock) -> None:
+        """Usually deterministic — the server choked on this exact request, so
+        three attempts just make the same failure slower."""
+        limiter = _limiter(clock)
+        async with _client(httpx.Response(500)) as client:
+            result = await send(client, limiter, "GET", URL, jitter=_no_jitter)
+
+        assert result.status_code == 500
+        assert clock.slept == []
+
     async def test_5xx_is_retried_then_returned(self, clock: FakeClock) -> None:
         """The caller raises, not send() — that is what keeps the 401 branch in
         _request() able to produce SessionExpired."""
