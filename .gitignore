@@ -21,3 +21,4 @@ LOCAL/
 
 # Personal MCP write-tool guard; not team policy
 .claude/settings.local.json
+docs/decision-rate-limiter.md
