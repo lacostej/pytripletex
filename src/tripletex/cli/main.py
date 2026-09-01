@@ -56,30 +56,29 @@ def _make_client(ctx):
 
 
 class _CompanyClientWrapper:
-    """Async context manager that switches company context after authenticating."""
+    """Async context manager that binds the client to --company after authenticating."""
 
     def __init__(self, ctx):
         self._ctx = ctx
         self._client = _make_client(ctx)
-        self._company_cm = None
 
     async def __aenter__(self):
         client = await self._client.__aenter__()
         company_name = self._ctx.obj.get("company_name")
-        if company_name:
-            require_web_session(client.session, "--company")
-            companies = await client.list_companies()
-            match = [c for c in companies if company_name.lower() in c.display_name.lower()]
-            if not match:
-                names = ", ".join(c.display_name for c in companies)
-                raise click.ClickException(f"Company '{company_name}' not found. Available: {names}")
-            self._company_cm = client.company_context(match[0])
-            await self._company_cm.__aenter__()
-        return client
+        if not company_name:
+            return client
+
+        require_web_session(client.session, "--company")
+        companies = await client.list_companies()
+        match = [c for c in companies if company_name.lower() in c.display_name.lower()]
+        if not match:
+            names = ", ".join(c.display_name for c in companies)
+            raise click.ClickException(f"Company '{company_name}' not found. Available: {names}")
+        # Hand back a sibling bound to the company. The client we authenticated
+        # stays the owner of the connection pool and is what __aexit__ closes.
+        return client.for_company(match[0])
 
     async def __aexit__(self, *exc):
-        if self._company_cm:
-            await self._company_cm.__aexit__(*exc)
         await self._client.__aexit__(*exc)
 
 

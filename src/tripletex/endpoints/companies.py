@@ -25,20 +25,15 @@ async def get_company(client: TripletexClient, company_id: int) -> Company:
     """Fetch full details for a single company (including organizationNumber).
 
     The GET /v2/company/{id} endpoint only works when the session context
-    matches the requested company, so this temporarily switches context.
+    matches the requested company, so a web session asks through a sibling
+    client bound to that company. An API token carries its own company and has
+    no context to switch.
     """
     from tripletex.session import WebSession
 
-    session = client.session
-    if isinstance(session, WebSession):
-        original_context = session.context_id
-        session.context_id = str(company_id)
-        try:
-            data = await client.get_json(f"/v2/company/{company_id}")
-        finally:
-            session.context_id = original_context
-    else:
-        data = await client.get_json(f"/v2/company/{company_id}")
+    if isinstance(client.session, WebSession):
+        client = client.for_company(company_id)
+    data = await client.get_json(f"/v2/company/{company_id}")
     return Company.model_validate(data["value"])
 
 

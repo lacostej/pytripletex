@@ -42,6 +42,8 @@ class TripletexClient:
         self._session: Session | None = None
         self._http: httpx.AsyncClient | None = None
         self._limiter: RateLimiter | None = None
+        # False on a sibling from for_company(), which borrows the pool.
+        self._owns_http = True
 
     @classmethod
     def web(cls, config: TripletexConfig) -> TripletexClient:
@@ -334,28 +336,64 @@ class TripletexClient:
 
         return await list_companies(self)
 
+    def for_company(self, company: Company | int) -> TripletexClient:
+        """A sibling client bound to `company`, sharing this one's login.
+
+        The returned client has its own session object carrying a different
+        `contextId`, but shares the cookie jar (same login), the connection pool
+        and the rate limiter — the quota belongs to the credentials, not to the
+        company, so siblings must not each pace themselves independently.
+
+        Prefer this to mutating `context_id` in place. A shared session that is
+        switched and restored cannot be used concurrently — two companies inside
+        an `asyncio.gather` would overwrite each other's context and silently
+        read the wrong company's books — and a client kept past the switch
+        reverts under the caller's feet. Siblings have neither problem.
+
+        The sibling does not own the connection pool, so closing it is a no-op;
+        close the client it came from.
+        """
+        session = require_web_session(self.session, "Switching company")
+        company_id = company if isinstance(company, int) else company.id
+
+        sibling = TripletexClient(self.config, auth_mode=self._auth_mode)
+        sibling._session = WebSession(
+            cookies=session.cookies,  # same jar — the login is shared
+            context_id=str(company_id),
+            created_at=session.created_at,
+        )
+        # Properties, so the pool and limiter are created if they do not exist
+        # yet and then genuinely shared rather than duplicated.
+        sibling._http = self.http
+        sibling._limiter = self.limiter
+        sibling._owns_http = False
+        return sibling
+
     @asynccontextmanager
     async def company_context(self, company: Company) -> AsyncIterator[TripletexClient]:
-        """Context manager that temporarily switches to a different company."""
-        session = require_web_session(self.session, "Switching company")
-        original_context_id = session.context_id
-        session.context_id = str(company.id)
-        try:
-            yield self
-        finally:
-            session.context_id = original_context_id
+        """Yield a client bound to `company`. Kept for the `async with` shape.
+
+        Note it yields a *different* client — using `self` inside the block
+        still talks to the original company. `for_company()` is the same thing
+        without the ceremony.
+        """
+        yield self.for_company(company)
 
     async def iter_companies(self) -> AsyncIterator[tuple[Company, TripletexClient]]:
-        """Iterate over all companies, yielding (company, client) pairs."""
-        companies = await self.list_companies()
-        for company in companies:
-            async with self.company_context(company) as client:
-                yield company, client
+        """Iterate over all companies, yielding (company, client) pairs.
+
+        Each client stays bound to its company after the loop moves on, so the
+        pairs can be collected and used later, or fanned out over concurrently.
+        """
+        for company in await self.list_companies():
+            yield company, self.for_company(company)
 
     # --- Lifecycle ---
 
     async def close(self) -> None:
-        if self._http is not None:
+        # A sibling from for_company() borrows the pool; closing it would break
+        # the client it came from, and every other sibling.
+        if self._http is not None and self._owns_http:
             await self._http.aclose()
             self._http = None
 
