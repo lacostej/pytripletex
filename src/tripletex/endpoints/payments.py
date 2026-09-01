@@ -106,7 +106,9 @@ async def list_payments(
 
     Args:
         client: Authenticated TripletexClient
-        status_filter: "FOR_APPROVAL", "APPROVED", "SENT_TO_BANK", "RECEIVED_BY_BANK", etc.
+        status_filter: One of `PAYMENT_STATUSES`, or a comma-separated list of
+            them. Note that `APPROVED` and `SENT_TO_BANK` look plausible but are
+            rejected with a 422 — see the comment on `PAYMENT_STATUSES`.
         limit: Max results to fetch (default: every match)
     """
     require_web_session(client.session, "Listing bank payments")
