@@ -117,6 +117,40 @@ async def list_vouchers_with_postings(
     return [LedgerVoucher.model_validate(v) for v in values]
 
 
+async def list_close_groups(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+    limit: int | None = None,
+) -> list[dict]:
+    """Open-item matches — lukkegrupper — with their postings expanded.
+
+    GET /v2/ledger/closeGroup. A close group is Tripletex's record that an open
+    item was settled: it holds the posting that opened the item and the
+    posting(s) that closed it. That makes it the only place the API tells you
+    *when* something was paid — an invoice reports `amountOutstanding: 0` once
+    settled, but never the date it happened.
+
+    So this is what any payment-latency measure has to be built on. Measured on
+    Bonita Handel Jan–Aug 2026: 1228 groups, of which 841 touch supplier debt
+    (2400) and 33 customer receivables (1500). The rest are accruals and other
+    matched balance-sheet items, so callers must filter by account rather than
+    assuming every group is a payment.
+
+    Returned as raw dicts: a close group is a join record with no useful identity
+    of its own, and every caller wants the postings rather than the wrapper.
+    """
+    params = {
+        "dateFrom": date_from.isoformat(),
+        "dateTo": date_to.isoformat(),
+        "fields": (
+            "id,date,postings(id,date,amount,account(number,name),"
+            "customer(id,name),supplier(id,name),voucher(id,number))"
+        ),
+    }
+    return await paginate(client, "/v2/ledger/closeGroup", params=params, limit=limit)
+
+
 async def list_postings(
     client: TripletexClient,
     date_from: date,
