@@ -97,6 +97,100 @@ class VoucherMeta(BaseModel):
         return f"T{self.temp_number}" if self.temp_number else ""
 
 
+# --- Ledger: chart of accounts and postings ---
+
+
+class VatType(BaseModel):
+    """A VAT treatment. `percentage` can be negative — id 34 is -25%, used to
+    reverse high-rate input VAT on a credit note."""
+
+    id: int
+    name: Optional[str] = None
+    percentage: Optional[Decimal] = None
+
+    model_config = {"populate_by_name": True}
+
+
+class Account(BaseModel):
+    """A chart-of-accounts row.
+
+    `vat_type` is the account's *default* treatment, not what any posting used;
+    a posting carries its own. Comparing the two is the cheapest classification
+    check there is, but a difference is a question, not a defect — see
+    `ledger.vat_deviations`.
+    """
+
+    # Optional because a nested `account(...)` expansion returns only the fields
+    # the caller asked for, and `number` is the useful key anyway — it is the
+    # stable chart-of-accounts number, while `id` is internal.
+    id: Optional[int] = None
+    number: Optional[int] = None
+    name: Optional[str] = None
+    type: Optional[str] = None
+    vat_type: Optional[VatType] = Field(default=None, alias="vatType")
+    is_bank_account: bool = Field(default=False, alias="isBankAccount")
+    is_inactive: bool = Field(default=False, alias="isInactive")
+
+    model_config = {"populate_by_name": True}
+
+
+class Posting(BaseModel):
+    """One line of a voucher.
+
+    `amount` is signed and in NOK; `amount_currency` is the same figure in
+    `currency` when the voucher was raised in a foreign one. Both arrive as
+    NOK-equal on domestic vouchers.
+    """
+
+    id: int
+    date: Optional[datetime.date] = None
+    description: Optional[str] = None
+    amount: Optional[Decimal] = None
+    amount_currency: Optional[Decimal] = Field(default=None, alias="amountCurrency")
+    currency: Optional[dict] = None
+    account: Optional[Account] = None
+    vat_type: Optional[VatType] = Field(default=None, alias="vatType")
+    supplier: Optional[dict] = None
+    customer: Optional[dict] = None
+    employee: Optional[dict] = None
+    department: Optional[dict] = None
+    project: Optional[dict] = None
+    row: Optional[int] = None
+
+    model_config = {"populate_by_name": True}
+
+
+class LedgerVoucher(BaseModel):
+    """A voucher with its postings and receipt expanded.
+
+    `voucher_type` is `None` on manually entered vouchers and on those written
+    by integrations — 72 of 326 in one measured month — so it cannot be used as
+    a required key. `attachment` is `None` when the voucher carries no document,
+    which is correct and expected for payment runs and salary vouchers.
+    """
+
+    id: int
+    number: Optional[int] = None
+    temp_number: Optional[int] = Field(default=None, alias="tempNumber")
+    year: Optional[int] = None
+    date: Optional[datetime.date] = None
+    description: Optional[str] = None
+    voucher_type: Optional[dict] = Field(default=None, alias="voucherType")
+    attachment: Optional[dict] = None
+    postings: list[Posting] = Field(default_factory=list)
+    changes: list[dict] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def has_attachment(self) -> bool:
+        return bool(self.attachment and self.attachment.get("id"))
+
+    @property
+    def voucher_type_name(self) -> Optional[str]:
+        return (self.voucher_type or {}).get("name")
+
+
 # --- Travel expenses ---
 
 
