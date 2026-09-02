@@ -23,3 +23,4 @@ LOCAL/
 .claude/settings.local.json
 docs/decision-rate-limiter.md
 docs/reply-to-ops-monitor.md
+docs/reconciliation-enrichment.md
