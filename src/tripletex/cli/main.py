@@ -148,6 +148,32 @@ def reconciliation():
     pass
 
 
+def _transaction_label(txn) -> str:
+    """How to render a bank transaction in one column.
+
+    `description` and `details` are different strings, not a summary and its
+    expansion, and which one names the counterparty depends on the transaction.
+    A card purchase says `Kortnr : 4593******6077` in `description` and names the
+    merchant in `details`; a direct debit names the merchant in `description` and
+    puts a bank reference in `details`.
+
+    So show `description` and append `details` when it adds something. Preferring
+    `details` — as this once did — replaced "MENY FROGNER FROGNERVEIEN OSLO" with
+    "601705185118         2507" on a third of the rows we measured.
+    """
+    description = (txn.description or "").strip()
+    details = (txn.details or "").strip()
+
+    if not details or details == description:
+        return description or details
+    if not description:
+        return details
+    # Some banks repeat the description inside the details line.
+    if description in details:
+        return details
+    return f"{description} | {details}"
+
+
 @reconciliation.command("unreconciled")
 @click.option("--month", required=True, help="Month in YYYY-MM format")
 @click.option("--company", default=None, help="Filter to one company name")
@@ -178,7 +204,7 @@ def reconciliation_unreconciled(ctx, month, company):
                     for t in txns:
                         click.echo(
                             f"{comp.display_name}\t{account.iban or account.number}\t"
-                            f"{t.posted_date}\t{t.amount_currency}\t{t.details or t.description}"
+                            f"{t.posted_date}\t{t.amount_currency}\t{_transaction_label(t)}"
                         )
 
     run_async(_unreconciled())

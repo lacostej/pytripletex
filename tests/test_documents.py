@@ -178,3 +178,64 @@ class TestDownload:
         assert dest.read_bytes() == jpeg
         assert seen["path"] == "/v2/document/1161555237/content"
         assert seen["accept"] == "*/*"
+
+
+class TestTransactionLabel:
+    """`description` and `details` are different strings, not a summary and an
+    expansion — preferring details lost the merchant name on real rows."""
+
+    def _txn(self, description, details):
+        from tripletex.models import BankTransaction
+
+        return BankTransaction(
+            id=1,
+            postedDate="2026-07-02",
+            amountCurrency="-59.9",
+            description=description,
+            details=details,
+        )
+
+    def test_shows_both_when_each_adds_something(self):
+        from tripletex.cli.main import _transaction_label
+
+        # Measured: the description names the shop, details holds a reference.
+        label = _transaction_label(
+            self._txn("CLAS OHL 2875 BOGSTADVEIEN OSLO", "601705065486         0207")
+        )
+
+        assert label.startswith("CLAS OHL 2875 BOGSTADVEIEN OSLO")
+        assert "601705065486" in label
+
+    def test_a_card_row_still_reaches_the_merchant(self):
+        from tripletex.cli.main import _transaction_label
+
+        # Here it is the other way round: description is just the card number.
+        label = _transaction_label(
+            self._txn("Kortnr : 459390******8946", "GGM Gastro Nordic AB, KJØPSDATO : 03.07")
+        )
+
+        assert "GGM Gastro Nordic AB" in label
+
+    def test_no_details_leaves_the_description_alone(self):
+        from tripletex.cli.main import _transaction_label
+
+        assert _transaction_label(
+            self._txn("Retur - Konto 18138569965 er avslut", None)
+        ) == "Retur - Konto 18138569965 er avslut"
+
+    def test_details_containing_the_description_is_not_doubled(self):
+        from tripletex.cli.main import _transaction_label
+
+        assert _transaction_label(self._txn("SLO", "JUELS KOLONIAL, SLO 1807")) == (
+            "JUELS KOLONIAL, SLO 1807"
+        )
+
+    def test_identical_strings_are_not_repeated(self):
+        from tripletex.cli.main import _transaction_label
+
+        assert _transaction_label(self._txn("MENY FROGNER", "MENY FROGNER")) == "MENY FROGNER"
+
+    def test_an_empty_description_falls_back_to_details(self):
+        from tripletex.cli.main import _transaction_label
+
+        assert _transaction_label(self._txn("", "601705065486  0207")) == "601705065486  0207"
