@@ -97,6 +97,65 @@ class VoucherMeta(BaseModel):
         return f"T{self.temp_number}" if self.temp_number else ""
 
 
+# --- Travel expenses ---
+
+
+class TravelExpense(BaseModel):
+    """An expense claim (reiseregning / utleggsrefusjon).
+
+    `state` is the workflow position; `DELIVERED` means submitted and waiting
+    for someone to approve it, which is the queue worth watching.
+    """
+
+    id: int
+    number: Optional[int] = None
+    title: Optional[str] = None
+    # When the expense was incurred — not when it entered the approval queue.
+    date: Optional[datetime.date] = None
+    # When the employee submitted it. This is what ages a pending claim.
+    completed_date: Optional[datetime.date] = Field(
+        default=None, alias="completedDate"
+    )
+    approved_date: Optional[datetime.date] = Field(default=None, alias="approvedDate")
+    amount: Optional[Decimal] = None
+    payment_amount: Optional[Decimal] = Field(default=None, alias="paymentAmount")
+    state: Optional[str] = None
+    # Localised, so it follows the account language — "Levert" for DELIVERED on
+    # a Norwegian account. Display only; branch on `state`.
+    state_name: Optional[str] = Field(default=None, alias="stateName")
+    is_approved: bool = Field(default=False, alias="isApproved")
+    is_completed: bool = Field(default=False, alias="isCompleted")
+    employee: Optional[dict] = None
+    approved_by: Optional[dict] = Field(default=None, alias="approvedBy")
+    department: Optional[dict] = None
+    project: Optional[dict] = None
+    voucher: Optional[dict] = None
+    attachment_count: int = Field(default=0, alias="attachmentCount")
+    rejected_comment: Optional[str] = Field(default=None, alias="rejectedComment")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def employee_name(self) -> str:
+        e = self.employee or {}
+        return " ".join(
+            p for p in (e.get("firstName"), e.get("lastName")) if p
+        ).strip()
+
+    @property
+    def waiting_days(self) -> Optional[int]:
+        """Days since the claim was submitted for approval.
+
+        Ages from `completed_date`, falling back to the expense `date` when a
+        claim carries no submission date — the two coincide on same-day claims,
+        and `date` is never later, so this never under-reports the wait.
+        """
+        since = self.completed_date or self.date
+        if since is None:
+            return None
+        return (datetime.date.today() - since).days
+
+
 # --- Document reception ---
 
 
