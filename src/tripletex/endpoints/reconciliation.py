@@ -3,12 +3,54 @@
 from __future__ import annotations
 
 from datetime import date
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from tripletex.models import AccountingPeriod, BankAccount, BankTransaction, Reconciliation
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
+
+
+class Enrichment(str, Enum):
+    """How hard to work at filling in `BankTransaction.details`.
+
+    Enrichment costs **one request per unmatched transaction**, which dominates
+    the cost of listing a month: 19 transactions across four companies meant 19
+    extra calls on top of roughly three per account. A caller that only needs
+    counts and dates should not pay it.
+
+    Two strategies for now. The value of `details` varies by bank — a merchant
+    name on some, a transaction type or nothing on others — so a selective
+    strategy is a real possibility later (`CARDS`, say, enriching only
+    card-shaped descriptions). This is an enum rather than a boolean so adding
+    one does not change the signature again.
+    """
+
+    NONE = "none"
+    """Leave `details` unset. The default: cheap, and enough for counting."""
+
+    ALL = "all"
+    """Fetch details for every unmatched transaction."""
+
+
+def normalize_enrichment(enrich: Enrichment | str | None) -> Enrichment:
+    """Accept `None`, a name, or a member; reject anything else up front.
+
+    `None` means `NONE` — it reads naturally at a call site and keeps the common
+    case free of an import.
+    """
+    if enrich is None:
+        return Enrichment.NONE
+    if isinstance(enrich, Enrichment):
+        return enrich
+    try:
+        return Enrichment(str(enrich).strip().lower())
+    except ValueError:
+        valid = ", ".join(e.value for e in Enrichment)
+        raise ValueError(
+            f"Unknown enrichment strategy {enrich!r}. Valid values: {valid}"
+        ) from None
 
 
 async def list_bank_accounts(client: TripletexClient) -> list[BankAccount]:
@@ -139,11 +181,23 @@ async def get_unreconciled_transactions(
     client: TripletexClient,
     start_from: date,
     start_to: date,
+    enrich: Enrichment | str | None = None,
 ) -> list[tuple[BankAccount, list[BankTransaction]]]:
     """Get all unreconciled transactions across all bank accounts for a date range.
 
     Returns list of (account, unreconciled_transactions) tuples.
+
+    `enrich` controls whether `BankTransaction.details` is filled in, which costs
+    one extra request per unmatched transaction. It defaults to
+    `Enrichment.NONE`: counts, dates and amounts arrive either way, and that is
+    what a monitor needs. Pass `Enrichment.ALL` for the narrative line — worth it
+    on a card row, where `description` is only a masked card number.
+
+    **This default changed.** Enrichment used to be unconditional, so a caller
+    relying on `details` must now ask for it.
     """
+    strategy = normalize_enrichment(enrich)
+
     accounts = await list_bank_accounts(client)
     accounts = [a for a in accounts if a.require_reconciliation]
 
@@ -168,9 +222,9 @@ async def get_unreconciled_transactions(
             t for t in reconciliation.transactions if t.id not in approved_ids
         ]
 
-        # Enrich with transaction details
-        for txn in unreconciled:
-            txn.details = detail_text(await get_transaction_detail(client, txn.id))
+        if strategy is Enrichment.ALL:
+            for txn in unreconciled:
+                txn.details = detail_text(await get_transaction_detail(client, txn.id))
 
         if unreconciled:
             results.append((account, unreconciled))
