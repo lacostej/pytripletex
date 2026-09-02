@@ -283,3 +283,38 @@ class TestDetailText:
 
         assert detail_text(None) is None
         assert detail_text("nope") is None
+
+
+class TestEnrichment:
+    """Enrichment costs one request per unmatched transaction, so it is opt-in.
+    A monitor wanting counts and dates should not pay for it."""
+
+    def test_none_is_the_default_strategy(self):
+        import inspect
+
+        from tripletex.endpoints.reconciliation import get_unreconciled_transactions
+
+        default = inspect.signature(get_unreconciled_transactions).parameters["enrich"].default
+        assert default is None
+
+    def test_none_and_missing_mean_the_same(self):
+        from tripletex.endpoints.reconciliation import Enrichment, normalize_enrichment
+
+        assert normalize_enrichment(None) is Enrichment.NONE
+
+    @pytest.mark.parametrize("given", ["all", "ALL", " All "])
+    def test_names_are_accepted_case_and_space_insensitively(self, given):
+        from tripletex.endpoints.reconciliation import Enrichment, normalize_enrichment
+
+        assert normalize_enrichment(given) is Enrichment.ALL
+
+    def test_members_pass_through(self):
+        from tripletex.endpoints.reconciliation import Enrichment, normalize_enrichment
+
+        assert normalize_enrichment(Enrichment.ALL) is Enrichment.ALL
+
+    def test_an_unknown_strategy_is_refused(self):
+        from tripletex.endpoints.reconciliation import normalize_enrichment
+
+        with pytest.raises(ValueError, match="Unknown enrichment strategy"):
+            normalize_enrichment("cards")

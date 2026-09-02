@@ -177,8 +177,15 @@ def _transaction_label(txn) -> str:
 @reconciliation.command("unreconciled")
 @click.option("--month", required=True, help="Month in YYYY-MM format")
 @click.option("--company", default=None, help="Filter to one company name")
+@click.option(
+    "--enrich",
+    type=click.Choice(["none", "all"]),
+    default="all",
+    help="Fetch each transaction's detail line (one request each). "
+    "'none' is much cheaper but loses the merchant name on card rows.",
+)
 @click.pass_context
-def reconciliation_unreconciled(ctx, month, company):
+def reconciliation_unreconciled(ctx, month, company, enrich):
     """List unreconciled bank transactions."""
     from datetime import date as date_cls
     import calendar
@@ -195,7 +202,9 @@ def reconciliation_unreconciled(ctx, month, company):
             async for comp, comp_client in client.iter_companies():
                 if company and company.lower() not in comp.display_name.lower():
                     continue
-                results = await get_unreconciled_transactions(comp_client, start, end)
+                results = await get_unreconciled_transactions(
+                    comp_client, start, end, enrich=enrich
+                )
                 for account, txns in results:
                     click.echo(
                         f"# {len(txns):2d} unreconciled transactions for "
