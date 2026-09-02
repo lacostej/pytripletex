@@ -371,6 +371,89 @@ def vouchers_reception(ctx, as_json):
     run_async(_reception())
 
 
+@cli.group()
+def documents():
+    """Documents reception — files waiting for an employee."""
+
+
+@documents.command("queue")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of columns")
+@click.pass_context
+def documents_queue(ctx, as_json):
+    """List files waiting in documents reception (works with API tokens).
+
+    A different queue from `vouchers reception`: these are files mailed or
+    uploaded to an employee's document inbox, with no voucher or amount
+    attached. Ages are in whole days — Tripletex records only a date here.
+    """
+    import json as _json
+    from datetime import date
+
+    from tripletex.endpoints.documents import (
+        get_document_reception_context,
+        list_document_reception,
+    )
+
+    async def _queue():
+        async with _client(ctx) as client:
+            items = await list_document_reception(client)
+            context = await get_document_reception_context(client)
+
+            if as_json:
+                click.echo(
+                    _json.dumps(
+                        {
+                            "documents": [i.model_dump(mode="json") for i in items],
+                            "context": context.model_dump(mode="json"),
+                        },
+                        indent=2,
+                    )
+                )
+                return
+
+            for i in sorted(items, key=lambda i: (i.created or date.min, i.document_id)):
+                age = "" if i.age_days is None else f"{i.age_days}d"
+                click.echo(
+                    f"{i.document_id}\t{i.created or ''}\t{age}\t"
+                    f"{i.receiver_name or ''}\t{i.display_size or ''}\t"
+                    f"{i.document_name or ''}"
+                )
+
+            click.echo(f"\n{len(items)} documents waiting")
+            if not context.auth_all_employees:
+                # Otherwise an empty queue reads as "nothing to do" when it may
+                # only mean "nothing addressed to me".
+                click.echo(
+                    "Note: this token sees only its own employee's documents "
+                    "(authAllEmployees is false), so the count above is partial."
+                )
+            if context.document_reception_email:
+                click.echo(f"Send documents to: {context.document_reception_email}")
+
+    run_async(_queue())
+
+
+@documents.command("get")
+@click.argument("document_id", type=int)
+@click.option("--out", "dest", type=click.Path(), default=None, help="Destination path")
+@click.pass_context
+def documents_get(ctx, document_id, dest):
+    """Download one document's contents by id (works with API tokens)."""
+    from pathlib import Path
+
+    from tripletex.endpoints.documents import download_document
+
+    async def _get():
+        async with _client(ctx) as client:
+            meta = await client.get_json(f"/v2/document/{document_id}")
+            name = meta["value"].get("fileName") or f"document_{document_id}"
+            path = Path(dest) if dest else Path(name)
+            await download_document(client, document_id, path)
+            click.echo(f"{path}  ({path.stat().st_size} bytes)")
+
+    run_async(_get())
+
+
 @vouchers.command("backup")
 @click.option("--output-dir", required=True, type=click.Path(), help="Destination directory")
 @click.option("--from", "from_date", default=None, help="Start date (YYYY-MM-DD)")

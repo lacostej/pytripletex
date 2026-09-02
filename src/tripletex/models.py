@@ -97,6 +97,66 @@ class VoucherMeta(BaseModel):
         return f"T{self.temp_number}" if self.temp_number else ""
 
 
+# --- Document reception ---
+
+
+class DocumentReceptionItem(BaseModel):
+    """A file waiting in the Documents reception, addressed to an employee.
+
+    A different queue from voucher reception (bilagsmottak): these are files sent
+    to `<employeeId>.inbox@arkiv.tripletex.no`, carrying no voucher, supplier or
+    amount. See `adapter-notes.md` for what is and is not usable here.
+    """
+
+    document_id: int = Field(alias="documentId")
+    message_id: Optional[int] = Field(default=None, alias="messageId")
+    document_name: Optional[str] = Field(default=None, alias="documentName")
+    mime_type: Optional[str] = Field(default=None, alias="mimeType")
+    size: Optional[int] = None
+    display_size: Optional[str] = Field(default=None, alias="displaySize")
+    # Whose queue this sits in — the one triage axis the queue actually carries.
+    receiver_employee_id: Optional[int] = Field(
+        default=None, alias="receiverEmployeeId"
+    )
+    receiver_name: Optional[str] = Field(default=None, alias="receiverName")
+    # Measured always blank, for uploads and for mailed-in documents alike.
+    # Kept because it is in the model Tripletex publishes; do not rely on it.
+    sender_name: Optional[str] = Field(default=None, alias="senderName")
+    # A bare date, not a timestamp — good enough to age a queue in days, not
+    # within one.
+    created: Optional[datetime.date] = None
+    edited: Optional[datetime.date] = None
+    # Measured false on arrival for both a mailed and an uploaded document, so
+    # this does not identify unseen items.
+    is_new: bool = Field(default=False, alias="isNew")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def age_days(self) -> Optional[int]:
+        """Whole days since the document arrived, or None if undated."""
+        if self.created is None:
+            return None
+        return (datetime.date.today() - self.created).days
+
+
+class DocumentReceptionContext(BaseModel):
+    """Where documents come in, and what the caller may see."""
+
+    document_reception_email: Optional[str] = Field(
+        default=None, alias="documentReceptionEmail"
+    )
+    max_file_size: Optional[int] = Field(default=None, alias="maxFileSize")
+    # True when the caller sees every employee's documents rather than only
+    # their own — the difference between "the queue is empty" and "my queue is".
+    auth_all_employees: bool = Field(default=False, alias="authAllEmployees")
+    auth_voucher_reception: bool = Field(
+        default=False, alias="authVoucherReception"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 # --- Wages / Employees ---
 
 
