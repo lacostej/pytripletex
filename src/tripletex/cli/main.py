@@ -372,6 +372,64 @@ def vouchers_reception(ctx, as_json):
 
 
 @cli.group()
+def expenses():
+    """Travel expense claims."""
+
+
+@expenses.command("queue")
+@click.option(
+    "--state",
+    default="DELIVERED",
+    help="ALL, OPEN, DELIVERED (submitted, awaiting approval), APPROVED, REJECTED, SALARY_PAID",
+)
+@click.option("--older-than", default=None, type=int, help="Only claims waiting more than N days")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of columns")
+@click.pass_context
+def expenses_queue(ctx, state, older_than, as_json):
+    """List expense claims awaiting approval (works with API tokens).
+
+    Ages are counted from submission, not from the date of the expense — a
+    claim filed late has not been waiting since the taxi ride.
+    """
+    import json as _json
+
+    from tripletex.endpoints.expenses import list_travel_expenses, validate_state
+
+    try:
+        validate_state(state.upper())
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    async def _queue():
+        async with _client(ctx) as client:
+            claims = await list_travel_expenses(client, state=state.upper())
+            if older_than is not None:
+                claims = [
+                    c for c in claims
+                    if c.waiting_days is not None and c.waiting_days > older_than
+                ]
+
+            if as_json:
+                click.echo(
+                    _json.dumps([c.model_dump(mode="json") for c in claims], indent=2)
+                )
+                return
+
+            for c in sorted(claims, key=lambda c: (-(c.waiting_days or 0), c.id)):
+                wait = "" if c.waiting_days is None else f"{c.waiting_days}d"
+                att = f"{c.attachment_count} att" if c.attachment_count else ""
+                click.echo(
+                    f"{c.id}\t{c.completed_date or c.date or ''}\t{wait}\t"
+                    f"{c.employee_name}\t{c.amount or ''}\t{att}\t{c.title or ''}"
+                )
+
+            total = sum(c.amount for c in claims if c.amount is not None)
+            click.echo(f"\n{len(claims)} claims, {total} total")
+
+    run_async(_queue())
+
+
+@cli.group()
 def documents():
     """Documents reception — files waiting for an employee."""
 
