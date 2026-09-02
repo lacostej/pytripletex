@@ -239,3 +239,47 @@ class TestTransactionLabel:
         from tripletex.cli.main import _transaction_label
 
         assert _transaction_label(self._txn("", "601705065486  0207")) == "601705065486  0207"
+
+
+class TestDetailText:
+    """The details endpoint localises its JSON *key*: "Detaljer" on a
+    Norwegian-language company, "Details" on an English one. Matching a fixed
+    name dropped every line from Bonita Services."""
+
+    def test_reads_the_norwegian_key(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        assert detail_text({"Detaljer": "DIGITALOCEAN.COM, 01.03 USD 8,40"}) == (
+            "DIGITALOCEAN.COM, 01.03 USD 8,40"
+        )
+
+    def test_reads_the_english_key(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        # The regression: capital-D "Details" matched neither branch before.
+        assert detail_text({"Details": "GOOGLE*WORKSPACE BONIT, 01.03 EUR 24,3"}) == (
+            "GOOGLE*WORKSPACE BONIT, 01.03 EUR 24,3"
+        )
+
+    def test_reads_a_key_in_any_language(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        # Whatever a third language calls it, the payload is one string.
+        assert detail_text({"Einzelheiten": "REWE MARKT"}) == "REWE MARKT"
+
+    def test_an_empty_payload_is_none(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        # Common for settlement lines: PayPal and Vipps carry no narrative.
+        assert detail_text({}) is None
+
+    def test_blank_strings_do_not_count(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        assert detail_text({"Detaljer": "   "}) is None
+
+    def test_a_non_dict_is_none(self):
+        from tripletex.endpoints.reconciliation import detail_text
+
+        assert detail_text(None) is None
+        assert detail_text("nope") is None

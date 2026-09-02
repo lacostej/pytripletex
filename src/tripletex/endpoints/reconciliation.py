@@ -112,6 +112,29 @@ async def get_transaction_detail(
     return data.get("value", data)
 
 
+def detail_text(detail: object) -> str | None:
+    """Pull the narrative line out of a transaction-details payload.
+
+    **The key is localised.** The same endpoint answers
+    `{"Detaljer": "DIGITALOCEAN.COM, …"}` on a Norwegian-language company and
+    `{"Details": "GOOGLE*WORKSPACE …"}` on an English one — the JSON key follows
+    the account language, not just the values. Matching on a fixed name silently
+    dropped every line from the English company: card rows on Bonita Services
+    carry a merchant 12 times out of 12, and we were reading none of them.
+
+    The payload is a single-entry object, so take the first non-empty string
+    rather than guessing which language is in force. An empty `{}` means the
+    bank supplied no narrative for that transaction, which is common for
+    settlement lines (PayPal, Vipps).
+    """
+    if not isinstance(detail, dict):
+        return None
+    for value in detail.values():
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 async def get_unreconciled_transactions(
     client: TripletexClient,
     start_from: date,
@@ -147,9 +170,7 @@ async def get_unreconciled_transactions(
 
         # Enrich with transaction details
         for txn in unreconciled:
-            detail = await get_transaction_detail(client, txn.id)
-            if isinstance(detail, dict):
-                txn.details = detail.get("Detaljer", detail.get("details"))
+            txn.details = detail_text(await get_transaction_detail(client, txn.id))
 
         if unreconciled:
             results.append((account, unreconciled))
