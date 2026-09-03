@@ -27,7 +27,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tripletex.parsers.js import extract_csrf_token, extract_js_redirect_url
-from tripletex.session import TRUST_COOKIES, InteractiveLoginRequired, WebSession
+from tripletex.session import TWO_STEP_COOKIES, InteractiveLoginRequired, WebSession
 
 if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
@@ -500,15 +500,10 @@ async def _do_login_phase1(
         # The whole point of carrying the grant was to skip this step, so a
         # prompt here is the answer to whether Visma honours it — provided the
         # cookie really went out, which is worth stating rather than assuming.
-        presented = [
-            c.name for c in cookies.jar
-            if c.name.lower() in TRUST_COOKIES and "visma" in (c.domain or "")
-        ]
+        carried = sorted(c.name for c in cookies.jar if IDP_DOMAIN in (c.domain or ""))
         print(
-            f"Device grant {presented} was presented and Visma still asked for "
-            "a code — the cookie is not being honoured for this client."
-            if presented
-            else "No device grant was in the jar to present.",
+            f"Visma asked for a code despite carrying {carried} — the IdP "
+            "session was not accepted, or has lapsed.",
             file=sys.stderr,
         )
 

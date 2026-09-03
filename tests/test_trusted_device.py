@@ -691,33 +691,26 @@ class TestAuthenticatingCookiesOnly:
 
         assert "AWSALB" not in out
 
-    def test_trust_grant_gets_its_own_line(self):
+    def test_remember2sv_is_never_reported_as_a_device_grant(self):
+        """It looks like one — right name, 30-day expiry — but a login that
+        explicitly posted RememberCode=false was issued it just the same. Visma
+        sets it on any successful 2SV, so it is evidence of nothing, and saying
+        "the next login should skip MFA" on the strength of it was wrong."""
         from tripletex.session import describe_session
 
         out = "\n".join(describe_session(self._session(("remember2sv", 30))))
 
-        assert "device trust:" in out
-        assert "should skip MFA" in out
+        assert "device trust" not in out
+        assert "skip MFA" not in out
 
-    def test_no_trust_line_when_none_was_granted(self):
+    def test_it_still_counts_as_an_authenticating_deadline(self):
+        """Not a grant, but not cosmetic either — it belongs in the deadline
+        line, unlike Culture and rememberUsername."""
         from tripletex.session import describe_session
 
-        out = "\n".join(describe_session(self._session(("VismaAuth", 1))))
+        out = "\n".join(describe_session(self._session(("remember2sv", 30))))
 
-        assert "device trust:" not in out
-
-    def test_session_scoped_trust_cookie_is_not_a_grant(self):
-        """Before the checkbox fix, `remember2sv` was present but session-scoped
-        — issued, never granted."""
-        assert self._session(("remember2sv", None)).trusted_device_cookie() is None
-
-    def test_expired_grant_says_so_rather_than_promising_a_skip(self):
-        from tripletex.session import describe_session
-
-        out = "\n".join(describe_session(self._session(("remember2sv", -1))))
-
-        assert "device trust: expired" in out
-        assert "should skip MFA" not in out
+        assert "(remember2sv)" in out
 
 
 class TestPageComplaint:
