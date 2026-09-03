@@ -286,30 +286,53 @@ def _trusted_device_fields(state: LoginState) -> dict[str, tuple[str, bool]]:
     return fields
 
 
+#: The identity provider. Tripletex is only the service provider in front of it.
+IDP_DOMAIN = "connect.visma.com"
+
+#: Per-request scratch that must never be replayed, even from the IdP domain.
+#: Antiforgery is the dangerous one: ASP.NET validates the form's freshly-issued
+#: `__RequestVerificationToken` against this cookie, so a stale one fails the
+#: check and Visma silently re-renders the login page instead of advancing. That
+#: reads as "could not find password form" and cost two live logins to pin down.
+#: `returnUrl` pins the flow to a previous authorization request.
+_NEVER_REPLAY = (".aspnetcore.antiforgery.", "returnurl")
+
+
 def _seed_durable_cookies(target: httpx.Cookies, source: httpx.Cookies) -> int:
-    """Copy the trusted-device grant into a fresh login. Returns how many.
+    """Carry the Visma Connect session into a new login. Returns how many.
 
-    **An allowlist, and it has to be.** The first attempt carried every
-    persistent cookie except a handful of known-bad names, which on a real jar
-    meant eight: four AWS load-balancer cookies and `isTripletexUser` from
-    tripletex.no, plus `rememberUsername` and `.AspNetCore.Culture`. None of
-    them have any business in a `connect.visma.com` login, and carrying them
-    bounced the email step straight back to the login page.
+    **Scoped to the IdP, not to a chosen cookie.** Logging out of Tripletex does
+    not log you out of Visma Connect: Tripletex is the service provider, Visma
+    the identity provider, and a browser signing back in re-uses its live IdP
+    session to get a fresh authorization code without a password or a code.
+    That — not device trust — is why a browser stops asking. Measured: in the
+    browser, logging out of Tripletex and back in skips MFA entirely.
 
-    Only the device grant is wanted here, so only the device grant is copied.
-    Everything else the server will issue fresh, which is what it does for a
-    browser opening the page for the first time — and a browser is the thing we
-    are imitating.
+    So what has to survive is the whole `connect.visma.com` jar, minus the
+    scratch in `_NEVER_REPLAY`. Two earlier shapes both failed for the same
+    underlying reason, that the rule was about the wrong thing:
 
-    Session-scoped copies are skipped: before the checkbox fix `remember2sv` was
-    present but carried no expiry, meaning it had been issued and never granted.
+    - everything persistent, minus known-bad names — carried AWS load-balancer
+      cookies and `isTripletexUser` from tripletex.no, which belong to the
+      service provider and bounced the email step;
+    - `remember2sv` alone — the device grant, correctly issued at 30 days and
+      correctly presented, but on its own not enough: Visma still asked for a
+      code.
+
+    Expiry is deliberately ignored here. A session cookie dies when a *browser*
+    closes, which is a statement about a browser and not about the server-side
+    session it names; that session stays valid, and re-presenting the cookie is
+    exactly what a still-open browser does.
+
+    Tripletex's own cookies are never carried. They are dead — that is why we
+    are logging in — and they are what the login is about to replace.
     """
-    now = time.time()
     copied = 0
     for cookie in source.jar:
-        if not cookie.expires or cookie.expires <= now:
+        if IDP_DOMAIN not in (cookie.domain or ""):
             continue
-        if (cookie.name or "").lower() not in TRUST_COOKIES:
+        name = (cookie.name or "").lower()
+        if any(name.startswith(bad) or name == bad for bad in _NEVER_REPLAY):
             continue
         target.jar.set_cookie(cookie)
         copied += 1
@@ -383,11 +406,24 @@ async def _do_login_phase1(
     resp = await _follow_redirects(http, url, cookies)
     visma_base = _resolve_url("/", str(resp.url))
 
+    # A live Visma Connect session short-circuits the whole flow: the IdP
+    # re-issues an authorization code and the redirect chain lands back on
+    # Tripletex without ever showing a login form. That is the browser's
+    # experience of "log out, log in" and the reason it never sees MFA, so it
+    # is a success here and not a missing form.
+    if urlparse(config.base_url).netloc in str(resp.url) and "contextId" in str(resp.url):
+        print("Visma Connect session still valid — no login needed.", file=sys.stderr)
+        return await _finish_login(resp, cookies, config.base_url, http)
+
     # Step 2: Submit email
     forms = _get_forms(resp.text)
     email_form = _find_form_with_field(forms, "Username")
     if not email_form:
-        raise RuntimeError("Could not find email form on Visma Connect page")
+        raise RuntimeError(
+            f"Could not find email form on Visma Connect page ({resp.url}).\n"
+            f"{_page_complaint(resp.text)}"
+            f"Forms found: {[(a, list(d.keys())) for a, _, d in forms]}"
+        )
 
     action, _, data = email_form
     data["Username"] = config.username

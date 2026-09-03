@@ -246,18 +246,18 @@ class TestCookieDeadlines:
         assert list(session.cookie_expiries()) == ["VismaAuth"]
 
 
-class TestDurableCookieSeeding:
-    """What may be carried from a dead session into a fresh login.
+class TestIdpSessionSeeding:
+    """What may be carried from a dead Tripletex session into a fresh login.
 
-    Seeding the whole jar broke a real login. The stored jar held
-    `.AspNetCore.Antiforgery.D5MU2Fjo4Ro` from the previous session; ASP.NET
-    validates the form's freshly-issued `__RequestVerificationToken` against
-    that cookie, so a stale one fails the check and the server silently
-    re-renders the login page. The symptom was "Could not find password form"
-    with the email form still on it.
+    The rule is scoped to the identity provider. Logging out of Tripletex does
+    not log you out of Visma Connect, so a browser signing back in re-uses its
+    live IdP session and never sees a password or a code. Reproducing that means
+    carrying the connect.visma.com jar, minus per-request scratch.
+
+    Two earlier rules failed live and are pinned here as regressions.
     """
 
-    def _jar(self, *specs):
+    def _jar(self, *specs, domain=".connect.visma.com"):
         """specs are (name, days_until_expiry | None)."""
         import http.cookiejar
         import time
@@ -266,9 +266,9 @@ class TestDurableCookieSeeding:
         for name, days in specs:
             jar.jar.set_cookie(http.cookiejar.Cookie(
                 version=0, name=name, value="v", port=None, port_specified=False,
-                domain=".connect.visma.com", domain_specified=True,
-                domain_initial_dot=True, path="/", path_specified=True,
-                secure=True,
+                domain=domain, domain_specified=True,
+                domain_initial_dot=domain.startswith("."), path="/",
+                path_specified=True, secure=True,
                 expires=None if days is None else int(time.time() + days * 86400),
                 discard=days is None, comment=None, comment_url=None, rest={},
             ))
@@ -280,60 +280,73 @@ class TestDurableCookieSeeding:
         count = _seed_durable_cookies(target, jar)
         return target, count
 
+    def test_idp_session_cookies_are_carried(self):
+        """The point of the whole exercise: `session` and `sid` are what let a
+        browser skip both password and MFA."""
+        target, count = self._seed(self._jar(("session", None), ("sid", None)))
+
+        assert count == 2
+        assert sorted(c.name for c in target.jar) == ["session", "sid"]
+
+    def test_session_scoped_cookies_are_carried(self):
+        """A session cookie dies when a *browser* closes, which says nothing
+        about the server-side session it names. Requiring an expiry here left
+        the IdP session behind, which is why remember2sv alone was not enough."""
+        _, count = self._seed(self._jar(("session", None)))
+
+        assert count == 1
+
+    def test_device_grant_is_carried(self):
+        target, _ = self._seed(self._jar(("remember2sv", 30)))
+
+        assert [c.name for c in target.jar] == ["remember2sv"]
+
     def test_stale_antiforgery_cookie_is_never_replayed(self):
-        """The cookie that broke the live login the first time."""
-        jar = self._jar((".AspNetCore.Antiforgery.D5MU2Fjo4Ro", 30))
-        target, count = self._seed(jar)
-
-        assert count == 0
-        assert list(target.jar) == []
-
-    def test_only_the_device_grant_is_carried(self):
-        """The second live failure: a denylist let eight cookies through —
-        AWS load-balancer state, isTripletexUser, rememberUsername, Culture —
-        and the email step bounced straight back to the login page."""
-        jar = self._jar(
-            ("AWSALB", 7), ("AWSALBCORS", 7), ("AWSALBTG", 7), ("AWSALBTGCORS", 7),
-            ("isTripletexUser", 60), ("rememberUsername", 365),
-            (".AspNetCore.Culture", 365), ("remember2sv", 30),
-        )
-        target, count = self._seed(jar)
-
-        assert count == 1
-        assert [c.name for c in target.jar] == ["remember2sv"]
-
-    def test_session_cookies_are_dropped(self):
-        """No expiry means per-browser-session state the server will reissue."""
-        jar = self._jar(("tempSession", None), ("sid", None), ("remember2sv", None))
-        _, count = self._seed(jar)
+        """The cookie that broke a live login twice: ASP.NET validates the
+        form's fresh token against it, so a stale one bounces the step."""
+        _, count = self._seed(self._jar((".AspNetCore.Antiforgery.D5MU2Fjo4Ro", 30)))
 
         assert count == 0
 
-    def test_a_real_jar_before_any_trust_carries_nothing(self):
-        """Measured: all 16 cookies in the stored session were session-scoped, so
-        the login must be identical to one with no stored session at all."""
+    def test_return_url_is_never_replayed(self):
+        """It pins the flow to a previous authorization request."""
+        _, count = self._seed(self._jar(("returnUrl", 1)))
+
+        assert count == 0
+
+    def test_service_provider_cookies_are_never_carried(self):
+        """A denylist once let eight through, including AWS load-balancer state
+        and isTripletexUser from tripletex.no, and the email step bounced."""
         jar = self._jar(
+            ("AWSALB", 7), ("AWSALBCORS", 7), ("isTripletexUser", 60),
             ("JSESSIONID", None), ("CSRFTokenWriteOnly", None),
-            (".AspNetCore.Antiforgery.D5MU2Fjo4Ro", None), ("tempSession", None),
-            ("returnUrl", None), ("remember2sv", None), ("session", None),
-            ("sid", None), ("rememberUsername", None),
+            domain=".tripletex.no",
         )
         _, count = self._seed(jar)
 
         assert count == 0
 
-    def test_a_durable_trust_cookie_is_carried(self):
-        jar = self._jar(("remember2sv", 30), ("tempSession", None))
-        target, count = self._seed(jar)
+    def test_a_real_jar_carries_the_idp_side_only(self):
+        """Modelled on an actual post-login jar."""
+        visma = self._jar(
+            ("remember2sv", 30), ("session", None), ("sid", None),
+            ("tempSession", None), ("rememberUsername", 365),
+            (".AspNetCore.Culture", 365),
+            (".AspNetCore.Antiforgery.D5MU2Fjo4Ro", 0.01), ("returnUrl", 0.01),
+        )
+        for cookie in self._jar(
+            ("AWSALB", 7), ("isTripletexUser", 60), domain=".tripletex.no"
+        ).jar:
+            visma.jar.set_cookie(cookie)
 
-        assert count == 1
-        assert [c.name for c in target.jar] == ["remember2sv"]
+        target, count = self._seed(visma)
+        carried = sorted(c.name for c in target.jar)
 
-    def test_expired_durable_cookie_is_dropped(self):
-        jar = self._jar(("remember2sv", -1))
-        _, count = self._seed(jar)
-
-        assert count == 0
+        assert carried == [
+            ".AspNetCore.Culture", "remember2sv", "rememberUsername",
+            "session", "sid", "tempSession",
+        ]
+        assert count == 6
 
 
 class TestSeedingIsGatedOnTrustDevice:
