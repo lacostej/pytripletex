@@ -51,12 +51,18 @@ Carrying 5 durable cookie(s) from the previous session.
 Visma Connect session still valid — no login needed.
 ```
 
-That is what makes an unattended re-login possible. It is on by default because
-it changes nothing about what is stored — those cookies were always written to
-the session file — only whether they are presented. Turn it off with
-`reuse_idp_session = false` to force a full authentication every time.
+It is on by default because it changes nothing about what is stored — those
+cookies were always written to the session file — only whether they are
+presented. Turn it off with `reuse_idp_session = false`.
 
-Two further settings exist and neither is proven:
+**Its reach is ten hours.** Visma documents the IdP session as *"maximum session
+lifetime is 10 hours, no matter if there is activity or not by the user"* —
+absolute, not a sliding window, so re-using it does not extend it. Tripletex
+sessions last days to months, so by the time one dies the IdP session is usually
+long gone. This helps when a session dies early; it is not on its own an answer
+to unattended re-login.
+
+Two further settings, both off by default:
 
 ```toml
 [prod]
@@ -64,11 +70,18 @@ trust_device = true          # tick "remember this device for 30 days" at the MF
 persistent_session = true    # ask for a long-lived session, if the form offers one
 ```
 
-`trust_device`'s **effect is unverified**. A login with the box explicitly
-unticked is issued the same `remember2sv` cookie, with the same 30-day expiry,
-as one that ticks it, and carrying that cookie *without* an identity-provider
-session did not skip the MFA step. Nothing observed distinguishes the two, so it
-may be inert. Do not rely on it.
+`trust_device` is the one that matters past ten hours, and Visma documents it as
+real: *"remember my device for 30 days"*, after which *"you will only be prompted
+for the 2nd step once a month"*. **It is not yet demonstrated here.** One test
+carried `remember2sv` alone into a fresh login and Visma still asked for a code,
+but that jar had been stripped to a single cookie, so it shows only that the
+grant alone was not enough in that shape.
+
+The decisive test needs the IdP session to have lapsed — more than ten hours
+since the last interactive login — then `tripletex login --trust-device --force`.
+Password required, code hopefully not. Note that `remember2sv` is issued whether
+the box is ticked or not, so it cannot be used to tell whether the grant was
+given.
 
 Any of them can be set for one login without touching the config:
 

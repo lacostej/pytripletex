@@ -46,16 +46,33 @@ class TripletexConfig(BaseModel):
     # On by default because it changes nothing about what is stored — those
     # cookies were always written to the session file — only whether they are
     # presented. Turn it off to force a full authentication every time.
+    #
+    # **Its reach is 10 hours.** Visma documents the IdP session as "maximum
+    # session lifetime is 10 hours, no matter if there is activity or not by the
+    # user" — absolute, not a sliding window, so re-using it does not extend it.
+    # Tripletex sessions last days to months, so by the time one dies the IdP
+    # session is usually long gone and this saves nothing. It is worth having
+    # for the case where it does apply; it is not the answer to unattended
+    # re-login.
     reuse_idp_session: bool = True
 
     # Tick "remember this device for 30 days" at the MFA step.
     #
-    # **Effect unverified.** A login with the box explicitly unticked is issued
-    # the same `remember2sv` cookie, with the same 30-day expiry, as one that
-    # ticks it, and carrying that cookie without an identity-provider session
-    # did not skip the MFA step. Nothing observed distinguishes the two, so this
-    # may well be inert. Kept because it is what the form offers and it costs
-    # nothing; do not rely on it.
+    # This is the one that matters for unattended re-login, because it outlives
+    # the 10-hour IdP session by a factor of seventy. Visma documents it as real:
+    # "remember my device for 30 days", after which "you will only be prompted
+    # for the 2nd step once a month".
+    #
+    # **Not yet demonstrated here.** One test carried `remember2sv` alone into a
+    # fresh login and Visma still asked for a code — but that jar had been
+    # stripped to a single cookie, so it does not establish that the grant is
+    # useless, only that the grant alone was not enough in that shape. The
+    # decisive test needs the IdP session to have lapsed, which means waiting
+    # more than 10 hours since the last interactive login and then forcing a
+    # re-login: password required, code hopefully not.
+    #
+    # Also note `remember2sv` is issued whether the box is ticked or not, so it
+    # cannot be used to tell whether the grant was given.
     trust_device: bool = False
 
     # Ask for a long-lived session ("stay signed in") if the login form offers
