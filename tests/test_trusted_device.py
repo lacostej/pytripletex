@@ -426,3 +426,102 @@ class TestCookieCollectionPreservesExpiry:
         )
         name, _ = restored.longest_lived_cookie()
         assert name == "remember2sv"
+
+
+class TestDescribeSession:
+    """One readout shared by `login` and `status`.
+
+    They get compared minutes apart while checking whether a remember-device
+    option took, so a login reporting one deadline and status another would be
+    worse than either alone. Adopted from ops-monitor, which wrote it first.
+    """
+
+    def _session(self, *cookies, created_days_ago=0):
+        import http.cookiejar
+        import time
+        from datetime import datetime, timedelta, timezone
+        from tripletex.session import WebSession
+
+        jar = httpx.Cookies()
+        for name, days in cookies:
+            jar.jar.set_cookie(http.cookiejar.Cookie(
+                version=0, name=name, value="v", port=None, port_specified=False,
+                domain=".tripletex.no", domain_specified=True,
+                domain_initial_dot=True, path="/", path_specified=True,
+                secure=True,
+                expires=None if days is None else int(time.time() + days * 86400),
+                discard=days is None, comment=None, comment_url=None, rest={},
+            ))
+        return WebSession(
+            cookies=jar, context_id="1",
+            created_at=datetime.now(timezone.utc) - timedelta(days=created_days_ago),
+        )
+
+    def test_reports_a_long_deadline_as_persistent(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("remember2sv", 30))))
+
+        assert "remember2sv" in out
+        assert "looks persistent" in out
+
+    def test_reports_a_short_deadline_as_the_option_not_taking(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("VismaAuth", 0.5))))
+
+        assert "did not take" in out
+
+    def test_rotating_csrf_never_masks_a_good_deadline(self):
+        """The bug this shares with ops-monitor: reading the soonest deadline
+        calls a 30-day session short-lived."""
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(
+            self._session(("CSRFTokenWriteOnly", 0.04), ("remember2sv", 30))
+        ))
+
+        assert "looks persistent" in out
+        assert "(remember2sv)" in out
+        assert "likely rotated rather than fatal" in out
+        assert "CSRFTokenWriteOnly" in out  # shown, but as the soonest note
+
+    def test_no_stamped_deadline_is_an_idle_timeout(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("JSESSIONID", None))))
+
+        assert "idle timeout" in out
+        assert "looks persistent" not in out
+
+    def test_age_is_reported(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(created_days_ago=3)))
+
+        assert "established" in out
+        assert "3d" in out
+
+    def test_last_ok_is_included_when_the_caller_knows_it(self):
+        """pytripletex does not track this; ops-monitor does."""
+        from datetime import datetime, timedelta, timezone
+        from tripletex.session import describe_session
+
+        seen = datetime.now(timezone.utc) - timedelta(days=2)
+        out = "\n".join(describe_session(self._session(), last_ok_at=seen))
+
+        assert "last used ok" in out
+
+    def test_last_ok_is_omitted_when_unknown(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session()))
+
+        assert "last used ok" not in out
+
+    def test_expired_deadline_says_so(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("VismaAuth", -1))))
+
+        assert "already expired" in out

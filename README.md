@@ -64,19 +64,28 @@ Either flag can be set for one login without touching the config:
 tripletex --env prod login --trust-device
 ```
 
-`login` then reports the longest-lived cookie in the jar, which is how you tell
+`login` and `tripletex status` print the same readout, which is how you tell
 whether the option took:
 
 ```
-Longest-lived cookie: VismaAuth — expires 2026-10-03 07:12 UTC (29d)
+$ tripletex status
+established : 2026-09-03 08:28 UTC (0d 2h ago)
+expires     : 2026-10-03 08:28 UTC (remember2sv) — 29d 22h left
+              soonest 2026-09-03 09:28 UTC (CSRFTokenWriteOnly), likely rotated rather than fatal
+              looks persistent
+status      : VALID
 ```
 
-Read *longest*, never soonest: `CSRFTokenWriteOnly` is rotated per request and
-expires within the hour, so the earliest deadline reports a perfectly good
-30-day login as a failure. A deadline weeks out means it worked; hours out means
-it did not; and no stamped deadline at all means the server is enforcing an idle
-timeout rather than a fixed lifetime, so a keepalive is the fix rather than a
-longer session.
+Read the *longest* deadline, never the soonest: `CSRFTokenWriteOnly` is rotated
+per request and expires within the hour, so the earliest one reports a perfectly
+good 30-day login as a failure. A deadline weeks out means it worked; hours out
+means it did not; and nothing stamped at all points at an idle timeout rather
+than a fixed lifetime, so a keepalive would be the fix rather than a longer
+session.
+
+`status` also says whether the session still authenticates, which is a separate
+question from whether it has expired on paper — a session can be inside its
+deadline and still rejected.
 
 Add `company_id` to any section to assert which company its credentials reach.
 It is checked at authentication time, so a mistyped `--env`, a re-pointed section

@@ -195,6 +195,77 @@ def _parse_timestamp(raw: Any) -> datetime | None:
     return parsed
 
 
+#: A deadline at least this far out is what asking for a persistent session or a
+#: trusted device should look like. Below it, the option did not take.
+PERSISTENT_THRESHOLD = timedelta(days=7)
+
+
+def describe_session(
+    session: WebSession, last_ok_at: datetime | None = None
+) -> list[str]:
+    """Everything known about a stored session, as lines ready to print.
+
+    Shared between `login` and `status` on purpose. They get read minutes apart
+    while checking whether a "remember this device" option took effect, and a
+    login reporting one deadline while status reports another would be worse
+    than either alone. (The design, and this warning, come from ops-monitor,
+    which wrote this first and can now drop its copy.)
+
+    `last_ok_at` is a caller's record of when the session last authenticated
+    successfully — pytripletex does not track it, but ops-monitor does.
+    """
+    now = datetime.now(timezone.utc)
+    lines: list[str] = []
+
+    age = now - session.created_at
+    lines.append(
+        f"established : {session.created_at:%Y-%m-%d %H:%M UTC} "
+        f"({age.days}d {age.seconds // 3600}h ago)"
+    )
+    if last_ok_at is not None:
+        since = now - last_ok_at
+        lines.append(
+            f"last used ok: {last_ok_at:%Y-%m-%d %H:%M UTC} "
+            f"({since.days}d {since.seconds // 3600}h ago)"
+        )
+
+    deadlines = session.cookie_deadlines()
+    if not deadlines:
+        lines.append("expires     : nothing stamped — the server decides when")
+        lines.append("              this dies, which points at an idle timeout")
+        lines.append("              rather than a fixed lifetime")
+        return lines
+
+    # The *longest* deadline, never the soonest. A jar holds more than the thing
+    # that authenticates: `CSRFTokenWriteOnly` is rotated per request with an
+    # hour-scale expiry, so reading the soonest calls a perfectly good 30-day
+    # session short-lived — backwards, and it sends someone chasing a
+    # non-problem.
+    name, when = deadlines[-1]
+    left = when - now
+    remaining = (
+        "already expired"
+        if left.total_seconds() < 0
+        else f"{left.days}d {left.seconds // 3600}h left"
+    )
+    lines.append(f"expires     : {when:%Y-%m-%d %H:%M UTC} ({name}) — {remaining}")
+
+    if len(deadlines) > 1:
+        soon_name, soon_when = deadlines[0]
+        lines.append(
+            f"              soonest {soon_when:%Y-%m-%d %H:%M UTC} ({soon_name}), "
+            "likely rotated rather than fatal"
+        )
+
+    lines.append(
+        "              looks persistent"
+        if left >= PERSISTENT_THRESHOLD
+        else "              short-lived — a persistent-session or trusted-device"
+        " option, if one was offered, did not take"
+    )
+    return lines
+
+
 def require_web_session(session: object, what: str) -> WebSession:
     """Return `session` if it is a web session, else raise `WebSessionRequired`."""
     if not isinstance(session, WebSession):
@@ -272,6 +343,14 @@ class WebSession:
             if cookie.expires:
                 out[cookie.name] = datetime.fromtimestamp(cookie.expires, tz=timezone.utc)
         return out
+
+    def cookie_deadlines(self) -> list[tuple[str, datetime]]:
+        """Cookies that carry an expiry, soonest first.
+
+        Sorted so callers can take `[-1]` for the meaningful deadline and `[0]`
+        to show what is merely rotating — see `describe_session`.
+        """
+        return sorted(self.cookie_expiries().items(), key=lambda pair: pair[1])
 
     def longest_lived_cookie(self) -> tuple[str, datetime] | None:
         """The cookie that outlives the rest, or None if none carry a deadline.
