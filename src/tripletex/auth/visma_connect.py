@@ -657,12 +657,23 @@ def _cookie_for_url(cookies: httpx.Cookies, url: str, name: str) -> str:
 
 
 def _collect_cookies(jar: httpx.Cookies, response: httpx.Response) -> None:
-    """Extract Set-Cookie headers from response and all redirect history."""
-    # Collect from redirect history
-    if hasattr(response, "history"):
-        for hist_resp in response.history:
-            for cookie in hist_resp.cookies.jar:
-                jar.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
-    # Collect from final response
-    for cookie in response.cookies.jar:
-        jar.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
+    """Copy Set-Cookie from a response and its whole redirect chain into `jar`.
+
+    **Copy the cookie object, never `jar.set(name, value, …)`.** That helper
+    builds a *new* `http.cookiejar.Cookie` from the four arguments it is given
+    and leaves everything else at its default — so `expires` becomes `None`,
+    along with `secure` and the `rest` dict that carries HttpOnly.
+
+    This silently flattened every persistent cookie into a session cookie on the
+    way in. The session file recorded `expires: null` for all sixteen cookies,
+    the trusted-device cookie included, which made a 30-day grant look like the
+    server refusing to stamp a deadline at all. The data was never missing; we
+    were discarding it one line after receiving it.
+
+    Redirect history matters as much: Visma sets the interesting cookies on the
+    302 from `/totp/auth`, not on the page it lands you.
+    """
+    responses = [*getattr(response, "history", []), response]
+    for resp in responses:
+        for cookie in resp.cookies.jar:
+            jar.jar.set_cookie(cookie)
