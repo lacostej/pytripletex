@@ -47,16 +47,21 @@ trust_device = true          # tick "remember this device for 30 days" at the MF
 persistent_session = true    # ask for a long-lived session, if the form offers one
 ```
 
-`trust_device` is the one worth having. It tells Visma Connect to remember the
-browser, and the resulting cookie is stored in the session file and replayed on
-the next login — so re-authentication needs only username and password, with no
-code to type. That is what lets a scheduled job repair its own session instead
-of waiting for a human.
+**What actually removes the MFA prompt is not the checkbox — it is the identity
+provider's own session.** Tripletex is a service provider in front of Visma
+Connect, and logging out of Tripletex leaves the Visma session untouched, which
+is why a browser signing back in is never asked for a code. Setting
+`trust_device` makes the login carry the stored `connect.visma.com` cookies into
+the next login, reproducing that.
 
-**It puts a durable second factor on disk.** The cookie lives in the same
-`~/.tripletex/session_<env>.json` as the session cookie beside it and is no
-easier to steal, but it lasts far longer, which is why this is opt-in rather
-than the default.
+`trust_device` also ticks "remember this device for 30 days" at the MFA step.
+Whether that has any effect is **unverified**: a login with the box explicitly
+unticked is issued the same `remember2sv` cookie, with the same 30-day expiry,
+as one that ticks it — so nothing observed so far distinguishes them.
+
+**It puts a live Visma Connect session on disk.** That is the credential for the
+identity provider rather than for one service behind it, which is why this is
+opt-in rather than the default.
 
 Either flag can be set for one login without touching the config:
 
@@ -69,16 +74,11 @@ whether the option took:
 
 ```
 $ tripletex status
-established : 2026-09-03 08:37 UTC (0d 0h ago)
-device trust: 2026-10-03 08:37 UTC (remember2sv) — 29d left, so the next login should skip MFA
-expires     : 2026-10-03 08:37 UTC (remember2sv) — 29d 23h left
-              soonest 2026-09-03 08:56 UTC (.AspNetCore.Antiforgery…), likely rotated rather than fatal
-              looks persistent
+established : 2026-09-03 08:59 UTC (0d 0h ago)
+expires     : 2026-10-03 08:59 UTC (remember2sv) — 29d 23h left
+              soonest 2026-09-03 09:19 UTC (.AspNetCore.Antiforgery…), likely rotated rather than fatal
 status      : VALID
 ```
-
-`device trust` is the direct answer to whether ticking the box worked. Visma
-issues the grant as `remember2sv` on `.connect.visma.com`, stamped 30 days out.
 
 The deadline line reads the longest expiry among cookies that actually carry
 authority — never the soonest, since `CSRFTokenWriteOnly` and the antiforgery
@@ -86,6 +86,11 @@ cookie rotate per request and would report a good 30-day login as a failure, and
 never blindly the longest either: `.AspNetCore.Culture` and `rememberUsername`
 are stamped a year out and authenticate nothing. Nothing stamped at all would
 point at an idle timeout rather than a fixed lifetime.
+
+**It deliberately passes no verdict on a long deadline.** A plain login with no
+options is issued `remember2sv` at 30 days, so any "looks persistent" verdict
+would print on every run and confirm nothing. Only a short deadline is flagged,
+because that one is actionable whatever caused it.
 
 Re-running `login` on a healthy session is a no-op, so use `--force` to apply an
 option to a session that still works:

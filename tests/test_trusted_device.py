@@ -492,20 +492,25 @@ class TestDescribeSession:
             created_at=datetime.now(timezone.utc) - timedelta(days=created_days_ago),
         )
 
-    def test_reports_a_long_deadline_as_persistent(self):
+    def test_a_long_deadline_gets_no_verdict(self):
+        """A plain login with no options is issued a 30-day cookie, so calling
+        that "persistent" printed a confirmation on every run and confirmed
+        nothing."""
         from tripletex.session import describe_session
 
         out = "\n".join(describe_session(self._session(("remember2sv", 30))))
 
         assert "remember2sv" in out
-        assert "looks persistent" in out
+        assert "persistent" not in out
+        assert "did not take" not in out
 
-    def test_reports_a_short_deadline_as_the_option_not_taking(self):
+    def test_a_short_deadline_is_still_flagged(self):
+        """Actionable regardless of what caused it."""
         from tripletex.session import describe_session
 
         out = "\n".join(describe_session(self._session(("VismaAuth", 0.5))))
 
-        assert "did not take" in out
+        assert "needs refreshing soon" in out
 
     def test_rotating_csrf_never_masks_a_good_deadline(self):
         """The bug this shares with ops-monitor: reading the soonest deadline
@@ -516,7 +521,7 @@ class TestDescribeSession:
             self._session(("CSRFTokenWriteOnly", 0.04), ("remember2sv", 30))
         ))
 
-        assert "looks persistent" in out
+        assert "needs refreshing soon" not in out
         assert "(remember2sv)" in out
         assert "likely rotated rather than fatal" in out
         assert "CSRFTokenWriteOnly" in out  # shown, but as the soonest note
@@ -527,7 +532,6 @@ class TestDescribeSession:
         out = "\n".join(describe_session(self._session(("JSESSIONID", None))))
 
         assert "idle timeout" in out
-        assert "looks persistent" not in out
 
     def test_age_is_reported(self):
         from tripletex.session import describe_session
