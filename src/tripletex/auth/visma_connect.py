@@ -448,6 +448,22 @@ async def _do_login_phase1(
     forms = _get_forms(resp.text)
     mfa_form = _find_form_with_field(forms, "AuthCode") or _find_form_with_field(forms, "Totp")
 
+    if mfa_form and prior_cookies is not None and config.trust_device:
+        # The whole point of carrying the grant was to skip this step, so a
+        # prompt here is the answer to whether Visma honours it — provided the
+        # cookie really went out, which is worth stating rather than assuming.
+        presented = [
+            c.name for c in cookies.jar
+            if c.name.lower() in TRUST_COOKIES and "visma" in (c.domain or "")
+        ]
+        print(
+            f"Device grant {presented} was presented and Visma still asked for "
+            "a code — the cookie is not being honoured for this client."
+            if presented
+            else "No device grant was in the jar to present.",
+            file=sys.stderr,
+        )
+
     if mfa_form:
         action, _, data = mfa_form
         mfa_field = "AuthCode" if "AuthCode" in data else "Totp"
@@ -544,8 +560,25 @@ async def _finish_login(
             {"action": a, "method": m, "fields": list(d.keys())}
             for a, m, d in diag_forms
         ]
+
+        # Landing back on the code form means the code was not accepted. Say so
+        # plainly: the usual cause is a reused code, since TOTP codes are single
+        # use even inside their 30-second window, and the generic message sent
+        # someone hunting a library bug for a retyped digit.
+        if _find_form_with_field(diag_forms, "AuthCode") or _find_form_with_field(
+            diag_forms, "Totp"
+        ):
+            raise RuntimeError(
+                "The MFA code was not accepted — Visma re-served the code form. "
+                "Codes are single use, so a code already submitted will be "
+                "rejected even within its 30-second window; wait for the next "
+                f"one and try again.\n{_page_complaint(resp.text)}"
+                f"Final URL: {final_url}"
+            )
+
         raise RuntimeError(
             f"Could not extract contextId. Final URL: {final_url}\n"
+            f"{_page_complaint(resp.text)}"
             f"Forms on page: {form_summary}\n"
             f"Response snippet: {resp.text[:500]}"
         )
