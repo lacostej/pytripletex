@@ -6,6 +6,7 @@ from datetime import date
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from tripletex.endpoints._paging import paginate
 from tripletex.models import AccountingPeriod, BankAccount, BankTransaction, Reconciliation
 
 if TYPE_CHECKING:
@@ -116,6 +117,34 @@ async def get_reconciliation(
     if not values:
         return None
     return Reconciliation.model_validate(values[0])
+
+
+async def list_reconciliations(
+    client: TripletexClient,
+    limit: int | None = None,
+) -> list[dict]:
+    """Every bank reconciliation, with when it was closed and by whom.
+
+    GET /v2/bank/reconciliation. `accountingPeriod.start` is the month being
+    reconciled and `closedDate` is when the work was actually finished, so the
+    gap between them is the reconciliation lag — how long after a month ends its
+    bank accounts get squared away. Measured on Bonita Handel, the January 2022
+    reconciliation closed on 2022-04-09.
+
+    That gap is the only reconciliation timing the API exposes. Individual
+    transactions carry a `postedDate` but no matched-on date; the closing of the
+    reconciliation is the event with a timestamp.
+
+    Returned as raw dicts because callers want different slices of a wide object
+    and `Reconciliation` deliberately models only the balance-checking fields.
+    """
+    params = {
+        "fields": (
+            "id,isClosed,closedDate,type,closedByEmployee(id,firstName,lastName),"
+            "account(id,number,name),accountingPeriod(id,start,end),transactions(id)"
+        )
+    }
+    return await paginate(client, "/v2/bank/reconciliation", params=params, limit=limit)
 
 
 async def get_approved_match_transaction_ids(
