@@ -281,12 +281,26 @@ class TestDurableCookieSeeding:
         return target, count
 
     def test_stale_antiforgery_cookie_is_never_replayed(self):
-        """The cookie that broke the live login."""
+        """The cookie that broke the live login the first time."""
         jar = self._jar((".AspNetCore.Antiforgery.D5MU2Fjo4Ro", 30))
         target, count = self._seed(jar)
 
         assert count == 0
         assert list(target.jar) == []
+
+    def test_only_the_device_grant_is_carried(self):
+        """The second live failure: a denylist let eight cookies through —
+        AWS load-balancer state, isTripletexUser, rememberUsername, Culture —
+        and the email step bounced straight back to the login page."""
+        jar = self._jar(
+            ("AWSALB", 7), ("AWSALBCORS", 7), ("AWSALBTG", 7), ("AWSALBTGCORS", 7),
+            ("isTripletexUser", 60), ("rememberUsername", 365),
+            (".AspNetCore.Culture", 365), ("remember2sv", 30),
+        )
+        target, count = self._seed(jar)
+
+        assert count == 1
+        assert [c.name for c in target.jar] == ["remember2sv"]
 
     def test_session_cookies_are_dropped(self):
         """No expiry means per-browser-session state the server will reissue."""
@@ -683,3 +697,35 @@ class TestAuthenticatingCookiesOnly:
 
         assert "device trust: expired" in out
         assert "should skip MFA" not in out
+
+
+class TestPageComplaint:
+    """Visma rejects a step by re-rendering the page with the reason on it,
+    not by returning an error status. Twice that looked like the form had moved
+    and sent us guessing at passwordless and layout changes."""
+
+    def test_validation_summary_is_surfaced(self):
+        from tripletex.auth.visma_connect import _page_complaint
+
+        html = """<div class="validation-summary-errors">
+                    <ul><li>The username or password is incorrect.</li></ul>
+                  </div>"""
+        assert "username or password is incorrect" in _page_complaint(html)
+
+    def test_field_error_is_surfaced(self):
+        from tripletex.auth.visma_connect import _page_complaint
+
+        html = '<span class="field-validation-error">Enter your 6-digit code</span>'
+        assert "Enter your 6-digit code" in _page_complaint(html)
+
+    def test_silence_is_reported_as_silence(self):
+        from tripletex.auth.visma_connect import _page_complaint
+
+        assert "no validation message" in _page_complaint("<form></form>")
+
+    def test_duplicates_are_collapsed(self):
+        from tripletex.auth.visma_connect import _page_complaint
+
+        html = ('<div class="text-danger">Same</div>'
+                '<div class="alert-danger">Same</div>')
+        assert _page_complaint(html).count("Same") == 1
