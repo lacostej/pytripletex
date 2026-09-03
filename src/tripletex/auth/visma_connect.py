@@ -48,6 +48,12 @@ class LoginState:
     mfa_form_data: dict[str, str]
     mfa_field_name: str  # "AuthCode" or "Totp"
     base_url: str  # Tripletex base URL, needed to complete login
+    #: Raw MFA page, kept so the trusted-device checkbox can be read off it at
+    #: submission time rather than guessed. Not serialized — `LoginState` is
+    #: in-memory only, and this holds no secret beyond what the jar already has.
+    mfa_html: str = ""
+    #: Whether to tick "remember this device for 30 days" when submitting.
+    trust_device: bool = False
 
 
 def _resolve_url(location: str, response_url: str) -> str:
@@ -62,7 +68,20 @@ def _resolve_url(location: str, response_url: str) -> str:
 
 
 def _get_forms(html: str) -> list[tuple[str, str, dict[str, str]]]:
-    """Extract all forms from HTML. Returns list of (action, method, {name: value})."""
+    """Extract all forms from HTML. Returns list of (action, method, {name: value}).
+
+    Note what this flattening does to an ASP.NET checkbox, because it matters:
+    the framework emits a checkbox and a hidden field of the *same name*, the
+    hidden one last, so an unchecked box still posts a value.
+
+        <input type="checkbox" name="RememberCode" value="true">
+        <input type="hidden"   name="RememberCode" value="false">
+
+    Collapsed into a dict, the hidden `false` overwrites the checkbox and the
+    form always posts `false` — which is why every login this library has ever
+    made declined to remember the device, whatever the page offered. Use
+    `_checkbox_pair` and `_encode_form` to opt back in.
+    """
     soup = BeautifulSoup(html, "lxml")
     forms = []
     for form in soup.find_all("form"):
@@ -77,14 +96,64 @@ def _get_forms(html: str) -> list[tuple[str, str, dict[str, str]]]:
     return forms
 
 
+def _checkbox_pair(html: str, name: str) -> tuple[str | None, bool]:
+    """(checked-value, has-hidden-partner) for a named checkbox, or (None, …).
+
+    The checked value is read from the element rather than assumed to be
+    `"true"` — Visma uses `value="true"`, but `"on"` is the HTML default and
+    other IdPs use it.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    checkbox = soup.find("input", attrs={"type": "checkbox", "name": name})
+    if checkbox is None:
+        return None, False
+    hidden = soup.find("input", attrs={"type": "hidden", "name": name})
+    return checkbox.get("value") or "on", hidden is not None
+
+
+def _encode_form(
+    data: dict[str, str], checked: dict[str, tuple[str, bool]]
+) -> dict[str, str | list[str]]:
+    """Form data with the named checkboxes ticked, ready to POST.
+
+    A ticked ASP.NET checkbox is posted by a browser as *two* values — the
+    checkbox's own, then the hidden partner's — and the model binder takes the
+    first. We reproduce that exactly rather than sending a lone `true`, because
+    matching the browser is the one shape known to work; the sniffed request
+    ends `…&RememberCode=true&…&RememberCode=false`.
+
+    The repeat is expressed as a list value rather than a list of pairs on
+    purpose: httpx treats a list passed to `data=` as raw content and builds a
+    *sync* byte stream from it, which blows up on an AsyncClient. A dict whose
+    value is a list is the supported way to repeat a key.
+
+    Where there is no hidden partner, a single value is correct and adding a
+    second would be wrong.
+    """
+    encoded: dict[str, str | list[str]] = {}
+    for key, value in data.items():
+        if key in checked:
+            on_value, has_hidden = checked[key]
+            encoded[key] = [on_value, value] if has_hidden else on_value
+        else:
+            encoded[key] = value
+    return encoded
+
+
 async def start_login(
     config: TripletexConfig,
     http: httpx.AsyncClient | None = None,
+    prior_cookies: httpx.Cookies | None = None,
 ) -> WebSession | LoginState:
     """Run the email + password steps of Visma Connect login.
 
+    Pass `prior_cookies` — the jar from a previous, now-dead session — to let a
+    trusted-device cookie carry over. That is what makes `trust_device` worth
+    anything: without it the login starts from an empty jar, Visma Connect sees
+    an unknown browser, and asks for a code however many times we ticked the box.
+
     Returns:
-        WebSession — if no MFA is required (login complete)
+        WebSession — if no MFA is required (login complete, or device trusted)
         LoginState — if MFA is required (call complete_login next)
     """
     if not config.username:
@@ -97,7 +166,7 @@ async def start_login(
         http = httpx.AsyncClient(timeout=30.0)
 
     try:
-        return await _do_login_phase1(config, http)
+        return await _do_login_phase1(config, http, prior_cookies)
     finally:
         if own_client:
             await http.aclose()
@@ -129,10 +198,12 @@ async def complete_login(
         data = dict(state.mfa_form_data)
         data[state.mfa_field_name] = mfa_code
 
+        payload = _encode_form(data, _trusted_device_fields(state))
+
         form_url = _resolve_url(state.mfa_form_action, state.visma_base)
         resp = await http.post(
             form_url,
-            data=data,
+            data=payload,
             headers={"User-Agent": _UA},
             cookies=cookies,
             follow_redirects=True,
@@ -145,11 +216,86 @@ async def complete_login(
             await http.aclose()
 
 
+#: The MFA-step checkbox that trusts this device, in the order we prefer them.
+#: `RememberCode` is what Visma Connect serves today, labelled "Remember this
+#: device for 30 days"; the rest are the names neighbouring IdPs use, kept so a
+#: rename does not silently turn the feature off. Nothing is guessed — a name is
+#: only used when the page actually contains a checkbox with it.
+_TRUST_DEVICE_FIELDS = (
+    "RememberCode",
+    "RememberMachine",
+    "RememberBrowser",
+    "TrustDevice",
+)
+
+#: Password-step checkbox that asks for a long-lived session.
+_PERSISTENT_SESSION_FIELDS = (
+    "RememberMe",
+    "RememberLogin",
+    "PersistentCookie",
+    "IsPersistent",
+)
+
+#: Hidden flag by which the server says device-trust is switched off for this
+#: tenant. Present and "True" means the checkbox is decorative.
+_DISABLE_REMEMBER = "DisableRememberDevice"
+
+
+def _tickable(
+    html: str, data: dict[str, str], candidates: tuple[str, ...]
+) -> dict[str, tuple[str, bool]]:
+    """Which of `candidates` this page really offers, ready for `_encode_form`."""
+    found: dict[str, tuple[str, bool]] = {}
+    for name in candidates:
+        if name not in data:
+            continue
+        on_value, has_hidden = _checkbox_pair(html, name)
+        if on_value is not None:
+            found[name] = (on_value, has_hidden)
+            break  # one is enough; these are alternate spellings of one idea
+    return found
+
+
+def _trusted_device_fields(state: LoginState) -> dict[str, tuple[str, bool]]:
+    """Checkboxes to tick on the MFA form, honouring the server's own opt-out."""
+    if not state.trust_device:
+        return {}
+
+    if (state.mfa_form_data.get(_DISABLE_REMEMBER) or "").lower() == "true":
+        print(
+            "Visma Connect reports device-trust is disabled for this account; "
+            "submitting MFA without it.",
+            file=sys.stderr,
+        )
+        return {}
+
+    fields = _tickable(state.mfa_html, state.mfa_form_data, _TRUST_DEVICE_FIELDS)
+    if not fields:
+        # Deliberately not fatal. A login that fails because a checkbox moved
+        # would be worse than a login that still asks for a code.
+        print(
+            "No trusted-device checkbox on the MFA form; submitting without it.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Asking Visma Connect to remember this device ({', '.join(fields)}).",
+            file=sys.stderr,
+        )
+    return fields
+
+
 async def visma_connect_login(
     config: TripletexConfig,
     http: httpx.AsyncClient | None = None,
+    prior_cookies: httpx.Cookies | None = None,
 ) -> WebSession:
-    """Perform the full Visma Connect login flow (CLI — prompts for MFA on stdin)."""
+    """Perform the full Visma Connect login flow (CLI — prompts for MFA on stdin).
+
+    With `config.trust_device` and a `prior_cookies` jar carrying an accepted
+    trusted-device cookie, this completes without prompting — which is what lets
+    a scheduled job repair its own session instead of waiting for a human.
+    """
     if not config.username:
         raise ValueError("username required for Visma Connect login")
     if not config.password_visma:
@@ -160,7 +306,7 @@ async def visma_connect_login(
         http = httpx.AsyncClient(timeout=30.0)
 
     try:
-        result = await _do_login_phase1(config, http)
+        result = await _do_login_phase1(config, http, prior_cookies)
 
         if isinstance(result, WebSession):
             return result
@@ -184,11 +330,20 @@ async def visma_connect_login(
 async def _do_login_phase1(
     config: TripletexConfig,
     http: httpx.AsyncClient,
+    prior_cookies: httpx.Cookies | None = None,
 ) -> WebSession | LoginState:
     """Email + password steps. Returns WebSession or LoginState (if MFA needed)."""
     # Step 1: Follow redirect chain from Tripletex to Visma Connect login page
     url = f"{config.base_url}/execute/login"
+
+    # Start from the old jar when we have one, so a trusted-device cookie is
+    # presented and the MFA step may be skipped entirely. Tripletex's own
+    # session cookies in there are already dead — that is why we are here — and
+    # the server replaces them as the flow proceeds.
     cookies = httpx.Cookies()
+    if prior_cookies is not None:
+        for cookie in prior_cookies.jar:
+            cookies.jar.set_cookie(cookie)
 
     resp = await _follow_redirects(http, url, cookies)
     visma_base = _resolve_url("/", str(resp.url))
@@ -227,12 +382,26 @@ async def _do_login_phase1(
     action, _, data = password_form
     data["Password"] = config.password_visma
 
+    checked: dict[str, tuple[str, bool]] = {}
+    if config.persistent_session:
+        checked = _tickable(resp.text, data, _PERSISTENT_SESSION_FIELDS)
+        if checked:
+            print(
+                f"Asking for a long-lived session ({', '.join(checked)}).",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "No stay-signed-in checkbox on the password form; continuing.",
+                file=sys.stderr,
+            )
+
     form_url = _resolve_url(action, visma_base)
     print("Submitting password...", file=sys.stderr)
 
     resp = await http.post(
         form_url,
-        data=data,
+        data=_encode_form(data, checked),
         headers={"User-Agent": _UA},
         cookies=cookies,
         follow_redirects=True,
@@ -253,9 +422,14 @@ async def _do_login_phase1(
             mfa_form_data=data,
             mfa_field_name=mfa_field,
             base_url=config.base_url,
+            mfa_html=resp.text,
+            trust_device=config.trust_device,
         )
 
-    # No MFA — finish login directly
+    # No MFA. Either this account has none, or a trusted-device cookie from a
+    # previous login was accepted and Visma Connect skipped the step.
+    if prior_cookies is not None:
+        print("MFA not requested — device recognised.", file=sys.stderr)
     return await _finish_login(resp, cookies, config.base_url, http)
 
 

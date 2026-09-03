@@ -95,7 +95,7 @@ async def test_expired_session_without_a_terminal_raises_instead_of_prompting(mo
         mfa_field_name="AuthCode", base_url="https://tripletex.no",
     )
 
-    async def fake_phase1(config, http):
+    async def fake_phase1(config, http, prior_cookies=None):
         return state
 
     monkeypatch.setattr(visma_connect, "_do_login_phase1", fake_phase1)

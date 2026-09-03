@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from datetime import datetime, timezone
 
 import click
 
@@ -106,18 +107,53 @@ def run_async(coro):
 
 
 @cli.command()
+@click.option(
+    "--trust-device/--no-trust-device",
+    default=None,
+    help="Ask Visma Connect to remember this device for 30 days, so the next "
+    "login needs no MFA code. Overrides trust_device in config.toml.",
+)
+@click.option(
+    "--persistent-session/--no-persistent-session",
+    default=None,
+    help="Ask for a long-lived session if the login form offers it. "
+    "Overrides persistent_session in config.toml.",
+)
 @click.pass_context
-def login(ctx):
+def login(ctx, trust_device, persistent_session):
     """Interactive Visma Connect login. Persists session to ~/.tripletex/."""
     from tripletex.client import TripletexClient
 
     async def _login():
         config = ctx.obj["config"]
+        # None means "not given on the command line" — leave the config alone.
+        if trust_device is not None:
+            config.trust_device = trust_device
+        if persistent_session is not None:
+            config.persistent_session = persistent_session
+
         client = TripletexClient.web(config)
         await client.authenticate()
         click.echo(f"Logged in. Context ID: {client.session.context_id}")
         name = config.env_name or "default"
         click.echo(f"Session saved to {config.session_dir / f'session_{name}.json'}")
+
+        # Report the longest deadline in the jar, which is how you tell whether
+        # the options took. Longest, not soonest: the CSRF token rotates per
+        # request and expires within the hour, so the earliest deadline would
+        # call a good 30-day login a failure.
+        longest = client.session.longest_lived_cookie()
+        if longest is None:
+            click.echo(
+                "No cookie carries an expiry — the server is enforcing an idle "
+                "timeout rather than a fixed lifetime, so a keepalive is the "
+                "fix rather than a longer session."
+            )
+        else:
+            cookie_name, when = longest
+            days = (when - datetime.now(timezone.utc)).days
+            click.echo(f"Longest-lived cookie: {cookie_name} — expires {when:%Y-%m-%d %H:%M} UTC ({days}d)")
+
         await client.close()
 
     run_async(_login())
