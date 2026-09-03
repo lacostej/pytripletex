@@ -314,9 +314,17 @@ class TestIdpSessionSeeding:
 
         assert count == 0
 
+    def test_remembered_username_is_never_replayed(self):
+        """An ASP.NET Data Protection blob, and the difference between a live
+        run that advanced and one that bounced. We submit the username
+        explicitly every time, so nothing is lost by dropping it."""
+        _, count = self._seed(self._jar(("rememberUsername", 365)))
+
+        assert count == 0
+
     def test_service_provider_cookies_are_never_carried(self):
-        """A denylist once let eight through, including AWS load-balancer state
-        and isTripletexUser from tripletex.no, and the email step bounced."""
+        """Not because they would leak — the jar is domain-scoped and would
+        never send a tripletex.no cookie to Visma — but because they are dead."""
         jar = self._jar(
             ("AWSALB", 7), ("AWSALBCORS", 7), ("isTripletexUser", 60),
             ("JSESSIONID", None), ("CSRFTokenWriteOnly", None),
@@ -343,10 +351,10 @@ class TestIdpSessionSeeding:
         carried = sorted(c.name for c in target.jar)
 
         assert carried == [
-            ".AspNetCore.Culture", "remember2sv", "rememberUsername",
+            ".AspNetCore.Culture", "remember2sv",
             "session", "sid", "tempSession",
         ]
-        assert count == 6
+        assert count == 5
 
 
 class TestSeedingIsGatedOnTrustDevice:
