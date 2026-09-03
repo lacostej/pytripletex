@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
@@ -285,6 +286,48 @@ def _trusted_device_fields(state: LoginState) -> dict[str, tuple[str, bool]]:
     return fields
 
 
+#: Names never worth replaying into a fresh login, whatever their expiry.
+#: Antiforgery is the dangerous one: ASP.NET validates the form's freshly-issued
+#: `__RequestVerificationToken` against this cookie, so a stale one fails the
+#: check and the server silently re-renders the login page instead of advancing.
+#: That looked exactly like "could not find password form" and cost a live login
+#: to diagnose. The rest are per-login scratch state that confuse the flow.
+_NEVER_REPLAY = (
+    ".aspnetcore.antiforgery.",
+    "tempsession",
+    "returnurl",
+    "session",
+    "sid",
+)
+
+
+def _seed_durable_cookies(target: httpx.Cookies, source: httpx.Cookies) -> int:
+    """Copy only the cookies worth carrying into a new login. Returns how many.
+
+    **Persistent cookies only.** A cookie with no expiry is per-browser-session
+    state that the server intends to reissue; replaying it is at best useless
+    and at worst breaks the login. A trusted-device cookie is by definition
+    persistent — that is the whole point of it — so this keeps exactly the thing
+    we want and drops exactly the things that hurt.
+
+    Measured on a real jar before the first trust-device login: all 16 cookies
+    were session-scoped, so this copies nothing and the login is byte-identical
+    to one with no stored session at all. That is the correct answer when no
+    device trust has been granted yet.
+    """
+    now = time.time()
+    copied = 0
+    for cookie in source.jar:
+        if not cookie.expires or cookie.expires <= now:
+            continue
+        name = (cookie.name or "").lower()
+        if any(name.startswith(bad) or name == bad for bad in _NEVER_REPLAY):
+            continue
+        target.jar.set_cookie(cookie)
+        copied += 1
+    return copied
+
+
 async def visma_connect_login(
     config: TripletexConfig,
     http: httpx.AsyncClient | None = None,
@@ -336,14 +379,18 @@ async def _do_login_phase1(
     # Step 1: Follow redirect chain from Tripletex to Visma Connect login page
     url = f"{config.base_url}/execute/login"
 
-    # Start from the old jar when we have one, so a trusted-device cookie is
-    # presented and the MFA step may be skipped entirely. Tripletex's own
-    # session cookies in there are already dead — that is why we are here — and
-    # the server replaces them as the flow proceeds.
+    # Carry a trusted-device cookie into the new login, but only when device
+    # trust was actually asked for. Seeding unconditionally changed the default
+    # login path for everyone and broke it — see `_seed_durable_cookies`.
     cookies = httpx.Cookies()
-    if prior_cookies is not None:
-        for cookie in prior_cookies.jar:
-            cookies.jar.set_cookie(cookie)
+    if prior_cookies is not None and config.trust_device:
+        carried = _seed_durable_cookies(cookies, prior_cookies)
+        print(
+            f"Carrying {carried} durable cookie(s) from the previous session."
+            if carried
+            else "Previous session held no durable cookies; logging in fresh.",
+            file=sys.stderr,
+        )
 
     resp = await _follow_redirects(http, url, cookies)
     visma_base = _resolve_url("/", str(resp.url))

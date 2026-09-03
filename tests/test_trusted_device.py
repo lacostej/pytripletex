@@ -244,3 +244,105 @@ class TestCookieDeadlines:
         session = self._session(SessionOnly=None, VismaAuth=30)
 
         assert list(session.cookie_expiries()) == ["VismaAuth"]
+
+
+class TestDurableCookieSeeding:
+    """What may be carried from a dead session into a fresh login.
+
+    Seeding the whole jar broke a real login. The stored jar held
+    `.AspNetCore.Antiforgery.D5MU2Fjo4Ro` from the previous session; ASP.NET
+    validates the form's freshly-issued `__RequestVerificationToken` against
+    that cookie, so a stale one fails the check and the server silently
+    re-renders the login page. The symptom was "Could not find password form"
+    with the email form still on it.
+    """
+
+    def _jar(self, *specs):
+        """specs are (name, days_until_expiry | None)."""
+        import http.cookiejar
+        import time
+
+        jar = httpx.Cookies()
+        for name, days in specs:
+            jar.jar.set_cookie(http.cookiejar.Cookie(
+                version=0, name=name, value="v", port=None, port_specified=False,
+                domain=".connect.visma.com", domain_specified=True,
+                domain_initial_dot=True, path="/", path_specified=True,
+                secure=True,
+                expires=None if days is None else int(time.time() + days * 86400),
+                discard=days is None, comment=None, comment_url=None, rest={},
+            ))
+        return jar
+
+    def _seed(self, jar):
+        from tripletex.auth.visma_connect import _seed_durable_cookies
+        target = httpx.Cookies()
+        count = _seed_durable_cookies(target, jar)
+        return target, count
+
+    def test_stale_antiforgery_cookie_is_never_replayed(self):
+        """The cookie that broke the live login."""
+        jar = self._jar((".AspNetCore.Antiforgery.D5MU2Fjo4Ro", 30))
+        target, count = self._seed(jar)
+
+        assert count == 0
+        assert list(target.jar) == []
+
+    def test_session_cookies_are_dropped(self):
+        """No expiry means per-browser-session state the server will reissue."""
+        jar = self._jar(("tempSession", None), ("sid", None), ("remember2sv", None))
+        _, count = self._seed(jar)
+
+        assert count == 0
+
+    def test_a_real_jar_before_any_trust_carries_nothing(self):
+        """Measured: all 16 cookies in the stored session were session-scoped, so
+        the login must be identical to one with no stored session at all."""
+        jar = self._jar(
+            ("JSESSIONID", None), ("CSRFTokenWriteOnly", None),
+            (".AspNetCore.Antiforgery.D5MU2Fjo4Ro", None), ("tempSession", None),
+            ("returnUrl", None), ("remember2sv", None), ("session", None),
+            ("sid", None), ("rememberUsername", None),
+        )
+        _, count = self._seed(jar)
+
+        assert count == 0
+
+    def test_a_durable_trust_cookie_is_carried(self):
+        jar = self._jar(("remember2sv", 30), ("tempSession", None))
+        target, count = self._seed(jar)
+
+        assert count == 1
+        assert [c.name for c in target.jar] == ["remember2sv"]
+
+    def test_expired_durable_cookie_is_dropped(self):
+        jar = self._jar(("remember2sv", -1))
+        _, count = self._seed(jar)
+
+        assert count == 0
+
+
+class TestSeedingIsGatedOnTrustDevice:
+    async def test_no_seeding_when_trust_device_is_off(self, monkeypatch):
+        """Seeding unconditionally changed the default login path for everyone
+        and broke it. With the option off, the login must start from an empty
+        jar exactly as before."""
+        from tripletex.auth import visma_connect
+        from tripletex.config import TripletexConfig
+
+        seen: dict = {}
+
+        async def fake_forms(http, url, cookies):
+            seen["names"] = [c.name for c in cookies.jar]
+            raise RuntimeError("stop here")
+
+        monkeypatch.setattr(visma_connect, "_follow_redirects", fake_forms)
+
+        jar = httpx.Cookies()
+        jar.set("remember2sv", "abc", domain="connect.visma.com")
+
+        config = TripletexConfig(username="u", password_visma="p", trust_device=False)
+        with pytest.raises(RuntimeError):
+            await visma_connect._do_login_phase1(config, httpx.AsyncClient(), jar)
+
+        assert seen["names"] == []
