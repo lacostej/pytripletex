@@ -13,7 +13,14 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from tripletex.endpoints._paging import paginate
-from tripletex.models import Employee, EmployeeAccess, EmployeeOverview
+from tripletex.models import (
+    Employee,
+    EmployeeAccess,
+    EmployeeOverview,
+    EmploymentPeriod,
+    HolidaySettings,
+    LeaveOfAbsence,
+)
 from tripletex.parsers.html import parse_employee_privileges_html
 from tripletex.session import require_web_session
 
@@ -142,3 +149,101 @@ def find_access_issues(
         for employee, access in report
         if employee.has_active_employment(on) and access.access_ended(on)
     ]
+
+
+# The full salary history hangs off the employment, so ask for it inline rather
+# than following `employmentDetails` per row.
+_EMPLOYMENT_FIELDS = (
+    "id,employmentId,startDate,endDate,employmentEndReason,isMainEmployer,"
+    "taxDeductionCode,lastSalaryChangeDate,"
+    "employee(id,firstName,lastName,employeeNumber),"
+    "division(id,name,organizationNumber),"
+    "employmentDetails(id,date,annualSalary,monthlySalary,hourlyWage,"
+    "percentageOfFullTimeEquivalent,employmentType,employmentForm,"
+    "remunerationType,workingHoursScheme,shiftDurationHours,"
+    "occupationCode(id,nameNO))"
+)
+
+
+async def list_employments(
+    client: TripletexClient,
+    employee_ids: list[int] | None = None,
+    availability: str = "ALL",
+) -> list[EmploymentPeriod]:
+    """Every employment with its full salary history.
+
+    GET /v2/employee/employment, once per employee.
+
+    **The per-employee loop is not an optimisation choice — it is required.**
+    Called without `employeeId` the endpoint answers 200 with a *single* row
+    rather than all of them: 1 instead of 81 on Bonita Handel, no error and no
+    warning. It is the silent-filtering shape described in `api-gaps.md` §2, and
+    a caller that trusts the unfiltered list gets a plausible, tiny, wrong
+    answer. So the employee list is fetched first and each id asked for
+    separately — 65 requests for 81 employments, comfortable inside the rate
+    limit.
+
+    This replaces scraping `/execute/employeeSalary`, which had to regex each
+    field out of form inputs, parse Norwegian decimals, and skip the blank
+    "new salary" row Tripletex renders. It also reaches things the HTML never
+    exposed: `monthlySalary`, `remunerationType`, `occupationCode`,
+    `taxDeductionCode`, and the division's `organizationNumber` as a field
+    rather than a number scraped out of a display name.
+    """
+    if employee_ids is None:
+        employees = await list_employees(
+            client, availability=availability, fields="id"
+        )
+        employee_ids = [e.id for e in employees if e.id is not None]
+
+    employments: list[EmploymentPeriod] = []
+    for employee_id in employee_ids:
+        values = await paginate(
+            client,
+            "/v2/employee/employment",
+            params={"employeeId": str(employee_id), "fields": _EMPLOYMENT_FIELDS},
+        )
+        employments.extend(EmploymentPeriod.model_validate(v) for v in values)
+    return employments
+
+
+async def list_leave_of_absence(
+    client: TripletexClient,
+    limit: int | None = None,
+) -> list[LeaveOfAbsence]:
+    """Leave periods across all employments.
+
+    GET /v2/employee/employment/leaveOfAbsence. Unlike `list_employments`, this
+    one does return the whole set without a per-employee filter.
+    """
+    values = await paginate(
+        client,
+        "/v2/employee/employment/leaveOfAbsence",
+        params={
+            "fields": "id,employment(id),startDate,endDate,percentage,type,"
+            "isWageDeduction"
+        },
+        limit=limit,
+    )
+    return [LeaveOfAbsence.model_validate(v) for v in values]
+
+
+async def list_holiday_settings(client: TripletexClient) -> list[HolidaySettings]:
+    """Vacation days and pay percentages, per year.
+
+    GET /v2/salary/settings/holiday — the API equivalent of the
+    `/execute/wageSettings` scrape, and it carries the over-60 rate
+    (`vacationPayPercentage2`) that the HTML version never picked up.
+
+    Years are sparse: a row applies until the next one supersedes it, and the
+    baseline row is dated 1970.
+    """
+    values = await paginate(
+        client,
+        "/v2/salary/settings/holiday",
+        params={
+            "fields": "id,year,days,vacationPayPercentage1,vacationPayPercentage2,"
+            "isMaxPercentage2Amount6G"
+        },
+    )
+    return [HolidaySettings.model_validate(v) for v in values]
