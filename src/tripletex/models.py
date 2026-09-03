@@ -191,6 +191,94 @@ class LedgerVoucher(BaseModel):
         return (self.voucher_type or {}).get("name")
 
 
+# --- Invoice reminders ---
+
+
+class Reminder(BaseModel):
+    """A chase sent on an unpaid customer invoice.
+
+    `type` matters more than it looks. `SOFT_REMINDER` is a courtesy nudge and
+    is not supposed to carry a fee; `REMINDER` is the formal purring that may.
+    Measured on Bonita Services 2024-2026: 32 soft against 7 formal, and only 4
+    of the 39 carried any charge or interest at all. Counting them together
+    makes a company look as though it never charges when mostly it never
+    escalated.
+    """
+
+    id: int
+    invoice_id: Optional[int] = Field(default=None, alias="invoiceId")
+    reminder_date: Optional[datetime.date] = Field(default=None, alias="reminderDate")
+    type: Optional[str] = None
+    charge: Optional[Decimal] = None
+    total_charge: Optional[Decimal] = Field(default=None, alias="totalCharge")
+    interests: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = Field(default=None, alias="interestRate")
+    total_amount_currency: Optional[Decimal] = Field(
+        default=None, alias="totalAmountCurrency"
+    )
+    term_of_payment: Optional[datetime.date] = Field(
+        default=None, alias="termOfPayment"
+    )
+    comment: Optional[str] = None
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def is_formal(self) -> bool:
+        """A formal purring rather than a courtesy nudge."""
+        return (self.type or "").upper() == "REMINDER"
+
+    @property
+    def cost_to_customer(self) -> Decimal:
+        return (self.total_charge or Decimal(0)) + (self.interests or Decimal(0))
+
+
+# --- Dashboard compliance reminders ---
+
+
+class DashboardReminder(BaseModel):
+    """A statutory deadline Tripletex shows on its dashboard.
+
+    Nothing to do with `Reminder`, which chases a customer for money. These are
+    filing and payment obligations — Skattemelding, A-melding, AGA — and the
+    colour is Tripletex's own urgency verdict, so it is worth carrying rather
+    than recomputing from `remaining_days`.
+
+    Flattened from a three-level response (`globalReminder`, `companyReminder`,
+    `reminderBorderColor`) because the nesting carries no information a caller
+    wants: the deadline and the company's progress against it are one fact.
+    """
+
+    id: int
+    name: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+    deadline: Optional[datetime.date] = None
+    remaining_days: Optional[int] = Field(default=None, alias="remainingDays")
+    term: Optional[str] = None
+    url: Optional[str] = Field(default=None, alias="reminderUrl")
+    #: `None` when the company has not started — no companyReminder row exists.
+    status: Optional[str] = None
+    submission_date: Optional[datetime.date] = Field(
+        default=None, alias="submissionDate"
+    )
+    border_color: Optional[str] = Field(default=None, alias="reminderBorderColor")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def is_urgent(self) -> bool:
+        """Tripletex's own verdict: red or yellow."""
+        return (self.border_color or "").upper() in ("RED", "YELLOW")
+
+    @property
+    def is_overdue(self) -> bool:
+        return self.remaining_days is not None and self.remaining_days < 0
+
+    @property
+    def is_done(self) -> bool:
+        return (self.status or "").upper() == "COMPLETED"
+
+
 # --- Travel expenses ---
 
 
