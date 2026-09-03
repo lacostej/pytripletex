@@ -27,7 +27,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tripletex.parsers.js import extract_csrf_token, extract_js_redirect_url
-from tripletex.session import InteractiveLoginRequired, WebSession
+from tripletex.session import TRUST_COOKIES, InteractiveLoginRequired, WebSession
 
 if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
@@ -286,42 +286,30 @@ def _trusted_device_fields(state: LoginState) -> dict[str, tuple[str, bool]]:
     return fields
 
 
-#: Names never worth replaying into a fresh login, whatever their expiry.
-#: Antiforgery is the dangerous one: ASP.NET validates the form's freshly-issued
-#: `__RequestVerificationToken` against this cookie, so a stale one fails the
-#: check and the server silently re-renders the login page instead of advancing.
-#: That looked exactly like "could not find password form" and cost a live login
-#: to diagnose. The rest are per-login scratch state that confuse the flow.
-_NEVER_REPLAY = (
-    ".aspnetcore.antiforgery.",
-    "tempsession",
-    "returnurl",
-    "session",
-    "sid",
-)
-
-
 def _seed_durable_cookies(target: httpx.Cookies, source: httpx.Cookies) -> int:
-    """Copy only the cookies worth carrying into a new login. Returns how many.
+    """Copy the trusted-device grant into a fresh login. Returns how many.
 
-    **Persistent cookies only.** A cookie with no expiry is per-browser-session
-    state that the server intends to reissue; replaying it is at best useless
-    and at worst breaks the login. A trusted-device cookie is by definition
-    persistent — that is the whole point of it — so this keeps exactly the thing
-    we want and drops exactly the things that hurt.
+    **An allowlist, and it has to be.** The first attempt carried every
+    persistent cookie except a handful of known-bad names, which on a real jar
+    meant eight: four AWS load-balancer cookies and `isTripletexUser` from
+    tripletex.no, plus `rememberUsername` and `.AspNetCore.Culture`. None of
+    them have any business in a `connect.visma.com` login, and carrying them
+    bounced the email step straight back to the login page.
 
-    Measured on a real jar before the first trust-device login: all 16 cookies
-    were session-scoped, so this copies nothing and the login is byte-identical
-    to one with no stored session at all. That is the correct answer when no
-    device trust has been granted yet.
+    Only the device grant is wanted here, so only the device grant is copied.
+    Everything else the server will issue fresh, which is what it does for a
+    browser opening the page for the first time — and a browser is the thing we
+    are imitating.
+
+    Session-scoped copies are skipped: before the checkbox fix `remember2sv` was
+    present but carried no expiry, meaning it had been issued and never granted.
     """
     now = time.time()
     copied = 0
     for cookie in source.jar:
         if not cookie.expires or cookie.expires <= now:
             continue
-        name = (cookie.name or "").lower()
-        if any(name.startswith(bad) or name == bad for bad in _NEVER_REPLAY):
+        if (cookie.name or "").lower() not in TRUST_COOKIES:
             continue
         target.jar.set_cookie(cookie)
         copied += 1
@@ -423,6 +411,7 @@ async def _do_login_phase1(
     if not password_form:
         raise RuntimeError(
             f"Could not find password form. Page URL: {resp.url}\n"
+            f"{_page_complaint(resp.text)}"
             f"Forms found: {[(a, list(d.keys())) for a, _, d in forms]}"
         )
 
@@ -623,6 +612,29 @@ async def _follow_redirects(
         return resp
 
     raise RuntimeError(f"Too many redirects (>{max_redirects})")
+
+
+def _page_complaint(html: str) -> str:
+    """Any validation message the page is showing, as a line ready to print.
+
+    When Visma rejects a step it re-renders the same page with the reason in a
+    validation summary rather than returning an error status. Without surfacing
+    it, a bounced step looks like the form moved — which sent us guessing at
+    passwordless and page-layout changes twice, when the page was saying what
+    was wrong all along.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    messages: list[str] = []
+    for node in soup.select(
+        ".validation-summary-errors, .field-validation-error, "
+        ".alert-danger, .text-danger, [role=alert]"
+    ):
+        text = " ".join(node.get_text(" ", strip=True).split())
+        if text and text not in messages:
+            messages.append(text)
+    if not messages:
+        return "Page showed no validation message.\n"
+    return "Page says: " + " | ".join(messages) + "\n"
 
 
 def _find_form_with_field(
