@@ -84,14 +84,21 @@ class TripletexClient:
             )
         return self._http
 
-    async def authenticate(self) -> None:
-        """Authenticate using the configured auth mode."""
+    async def authenticate(self, force: bool = False) -> None:
+        """Authenticate using the configured auth mode.
+
+        `force` re-runs the Visma Connect login even when the stored session
+        still works. Without it `authenticate` means "ensure logged in", which
+        is right for every ordinary command but leaves no way to deliberately
+        re-authenticate — and no way to test whether a login option took effect,
+        since the option only applies to a login that actually happens.
+        """
         mode = self._auth_mode or self._detect_auth_mode()
 
         if mode == "api":
             await self._authenticate_api()
         else:
-            await self._authenticate_web()
+            await self._authenticate_web(force=force)
 
         await self._verify_company()
 
@@ -138,7 +145,7 @@ class TripletexClient:
             employee_token=self.config.employee_token,
         )
 
-    async def _authenticate_web(self) -> None:
+    async def _authenticate_web(self, force: bool = False) -> None:
         """Authenticate via web session (manual cookies or Visma Connect)."""
         if self.config.cookie and self.config.csrf_token and self.config.context_id:
             from tripletex.auth.manual import create_manual_session
@@ -153,8 +160,10 @@ class TripletexClient:
 
         # Try loading persisted session
         session_path = self._session_path()
+        # Loaded even when forcing: the stored jar is where a trusted-device
+        # cookie lives, and a forced login still wants to present it.
         session = WebSession.load(session_path)
-        if session is not None:
+        if session is not None and not force:
             self._session = session
             if await self._validate_web_session():
                 return

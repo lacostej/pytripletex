@@ -525,3 +525,161 @@ class TestDescribeSession:
         out = "\n".join(describe_session(self._session(("VismaAuth", -1))))
 
         assert "already expired" in out
+
+
+class TestForcedLogin:
+    """`authenticate()` means "ensure logged in", which leaves no way to apply a
+    login option — an option only takes effect on a login that actually runs."""
+
+    def _client(self, tmp_path, valid=True):
+        from tripletex.client import TripletexClient
+        from tripletex.config import TripletexConfig
+
+        return TripletexClient.web(
+            TripletexConfig(username="u", password_visma="p", session_dir=tmp_path)
+        )
+
+    async def test_healthy_session_short_circuits_without_force(self, tmp_path, monkeypatch):
+        from tripletex.client import TripletexClient
+        from tripletex.session import WebSession
+
+        client = self._client(tmp_path)
+        WebSession(cookies=httpx.Cookies(), context_id="1").save(
+            tmp_path / "session_default.json"
+        )
+
+        monkeypatch.setattr(
+            TripletexClient, "_validate_web_session", lambda self: _true()
+        )
+        called = {"login": False}
+
+        async def fake_login(*a, **kw):  # pragma: no cover - must not run
+            called["login"] = True
+
+        monkeypatch.setattr(
+            "tripletex.auth.visma_connect.visma_connect_login", fake_login
+        )
+        monkeypatch.setattr(TripletexClient, "_verify_company", lambda self: _none())
+
+        await client.authenticate()
+        assert called["login"] is False
+
+    async def test_force_logs_in_again(self, tmp_path, monkeypatch):
+        from tripletex.client import TripletexClient
+        from tripletex.session import WebSession
+
+        client = self._client(tmp_path)
+        WebSession(cookies=httpx.Cookies(), context_id="1").save(
+            tmp_path / "session_default.json"
+        )
+
+        seen = {}
+
+        async def fake_login(config, http, prior_cookies=None):
+            seen["ran"] = True
+            seen["got_jar"] = prior_cookies is not None
+            return WebSession(cookies=httpx.Cookies(), context_id="2")
+
+        monkeypatch.setattr(
+            "tripletex.auth.visma_connect.visma_connect_login", fake_login
+        )
+        monkeypatch.setattr(TripletexClient, "_verify_company", lambda self: _none())
+
+        await client.authenticate(force=True)
+
+        assert seen["ran"] is True
+        # The stored jar is still handed over: a forced login is exactly when a
+        # trusted-device cookie should be presented.
+        assert seen["got_jar"] is True
+
+
+async def _true():
+    return True
+
+
+async def _none():
+    return None
+
+
+class TestAuthenticatingCookiesOnly:
+    """The longest deadline in the jar is not the session's deadline.
+
+    Measured on a real post-login jar: `.AspNetCore.Culture` and
+    `rememberUsername` are both stamped a year out. Both are preferences that
+    authenticate nothing, and reporting either called the session persistent on
+    evidence that meant nothing.
+    """
+
+    def _session(self, *cookies):
+        import http.cookiejar
+        import time
+        from tripletex.session import WebSession
+
+        jar = httpx.Cookies()
+        for name, days in cookies:
+            jar.jar.set_cookie(http.cookiejar.Cookie(
+                version=0, name=name, value="v", port=None, port_specified=False,
+                domain=".connect.visma.com", domain_specified=True,
+                domain_initial_dot=True, path="/", path_specified=True,
+                secure=True,
+                expires=None if days is None else int(time.time() + days * 86400),
+                discard=days is None, comment=None, comment_url=None, rest={},
+            ))
+        return WebSession(cookies=jar, context_id="1")
+
+    def test_locale_preference_is_not_the_session_deadline(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(
+            self._session((".AspNetCore.Culture", 365), ("remember2sv", 30))
+        ))
+
+        assert "(remember2sv)" in out
+        assert "expires     : " in out
+        assert ".AspNetCore.Culture" not in out
+
+    def test_remembered_username_is_not_authority_either(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(
+            self._session(("rememberUsername", 365), ("remember2sv", 30))
+        ))
+
+        assert "rememberUsername" not in out
+
+    def test_load_balancer_cookies_are_ignored(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(
+            self._session(("AWSALBTG", 7), ("remember2sv", 30))
+        ))
+
+        assert "AWSALB" not in out
+
+    def test_trust_grant_gets_its_own_line(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("remember2sv", 30))))
+
+        assert "device trust:" in out
+        assert "should skip MFA" in out
+
+    def test_no_trust_line_when_none_was_granted(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("VismaAuth", 1))))
+
+        assert "device trust:" not in out
+
+    def test_session_scoped_trust_cookie_is_not_a_grant(self):
+        """Before the checkbox fix, `remember2sv` was present but session-scoped
+        — issued, never granted."""
+        assert self._session(("remember2sv", None)).trusted_device_cookie() is None
+
+    def test_expired_grant_says_so_rather_than_promising_a_skip(self):
+        from tripletex.session import describe_session
+
+        out = "\n".join(describe_session(self._session(("remember2sv", -1))))
+
+        assert "device trust: expired" in out
+        assert "should skip MFA" not in out

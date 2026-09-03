@@ -69,19 +69,30 @@ whether the option took:
 
 ```
 $ tripletex status
-established : 2026-09-03 08:28 UTC (0d 2h ago)
-expires     : 2026-10-03 08:28 UTC (remember2sv) — 29d 22h left
-              soonest 2026-09-03 09:28 UTC (CSRFTokenWriteOnly), likely rotated rather than fatal
+established : 2026-09-03 08:37 UTC (0d 0h ago)
+device trust: 2026-10-03 08:37 UTC (remember2sv) — 29d left, so the next login should skip MFA
+expires     : 2026-10-03 08:37 UTC (remember2sv) — 29d 23h left
+              soonest 2026-09-03 08:56 UTC (.AspNetCore.Antiforgery…), likely rotated rather than fatal
               looks persistent
 status      : VALID
 ```
 
-Read the *longest* deadline, never the soonest: `CSRFTokenWriteOnly` is rotated
-per request and expires within the hour, so the earliest one reports a perfectly
-good 30-day login as a failure. A deadline weeks out means it worked; hours out
-means it did not; and nothing stamped at all points at an idle timeout rather
-than a fixed lifetime, so a keepalive would be the fix rather than a longer
-session.
+`device trust` is the direct answer to whether ticking the box worked. Visma
+issues the grant as `remember2sv` on `.connect.visma.com`, stamped 30 days out.
+
+The deadline line reads the longest expiry among cookies that actually carry
+authority — never the soonest, since `CSRFTokenWriteOnly` and the antiforgery
+cookie rotate per request and would report a good 30-day login as a failure, and
+never blindly the longest either: `.AspNetCore.Culture` and `rememberUsername`
+are stamped a year out and authenticate nothing. Nothing stamped at all would
+point at an idle timeout rather than a fixed lifetime.
+
+Re-running `login` on a healthy session is a no-op, so use `--force` to apply an
+option to a session that still works:
+
+```bash
+tripletex login --trust-device --force
+```
 
 `status` also says whether the session still authenticates, which is a separate
 question from whether it has expired on paper — a session can be inside its
