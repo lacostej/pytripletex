@@ -159,10 +159,18 @@ class TripletexClient:
             if await self._validate_web_session():
                 return
 
-        # Fall back to Visma Connect login
+        # Fall back to Visma Connect login, handing over the dead session's jar.
+        # Its Tripletex cookies are spent, but a trusted-device cookie from
+        # connect.visma.com outlives them by weeks, and presenting it is what
+        # lets the login skip MFA. Without this the flow starts from an empty
+        # jar and `trust_device` can never pay off.
         from tripletex.auth.visma_connect import visma_connect_login
 
-        self._session = await visma_connect_login(self.config, self.http)
+        self._session = await visma_connect_login(
+            self.config,
+            self.http,
+            prior_cookies=session.cookies if session is not None else None,
+        )
         self._session.save(session_path)
 
     async def session_status(self) -> SessionStatus:

@@ -33,6 +33,51 @@ consumer_token = "..."
 employee_token = "..."
 ```
 
+### Staying logged in
+
+Web sessions die on their own schedule — observed anywhere from about a day to
+about three months — and every death costs an interactive MFA login. Two opt-in
+settings reduce that, both off by default:
+
+```toml
+[prod]
+username = "you@example.com"
+password_visma = "..."
+trust_device = true          # tick "remember this device for 30 days" at the MFA step
+persistent_session = true    # ask for a long-lived session, if the form offers one
+```
+
+`trust_device` is the one worth having. It tells Visma Connect to remember the
+browser, and the resulting cookie is stored in the session file and replayed on
+the next login — so re-authentication needs only username and password, with no
+code to type. That is what lets a scheduled job repair its own session instead
+of waiting for a human.
+
+**It puts a durable second factor on disk.** The cookie lives in the same
+`~/.tripletex/session_<env>.json` as the session cookie beside it and is no
+easier to steal, but it lasts far longer, which is why this is opt-in rather
+than the default.
+
+Either flag can be set for one login without touching the config:
+
+```bash
+tripletex --env prod login --trust-device
+```
+
+`login` then reports the longest-lived cookie in the jar, which is how you tell
+whether the option took:
+
+```
+Longest-lived cookie: VismaAuth — expires 2026-10-03 07:12 UTC (29d)
+```
+
+Read *longest*, never soonest: `CSRFTokenWriteOnly` is rotated per request and
+expires within the hour, so the earliest deadline reports a perfectly good
+30-day login as a failure. A deadline weeks out means it worked; hours out means
+it did not; and no stamped deadline at all means the server is enforcing an idle
+timeout rather than a fixed lifetime, so a keepalive is the fix rather than a
+longer session.
+
 Add `company_id` to any section to assert which company its credentials reach.
 It is checked at authentication time, so a mistyped `--env`, a re-pointed section
 or a token copied between companies fails immediately instead of quietly reading

@@ -253,6 +253,50 @@ class WebSession:
     def request_auth(self) -> httpx.Auth | None:
         return None
 
+    def cookie_expiries(self) -> dict[str, datetime]:
+        """Expiry per named cookie, for the ones that carry a deadline.
+
+        This is how to tell whether asking for a trusted device or a long-lived
+        session actually worked: log in with the option on, read the deadlines,
+        and look for one about 30 days out. Guessing from how long the session
+        survives takes 30 days to answer the same question.
+
+        Session cookies — no expiry, gone when the browser closes — are omitted
+        rather than reported as never-expiring. If the result is empty the
+        server is keeping the deadline to itself, which means an idle timeout
+        rather than a fixed lifetime, and a keepalive is the fix rather than a
+        longer session.
+        """
+        out: dict[str, datetime] = {}
+        for cookie in self.cookies.jar:
+            if cookie.expires:
+                out[cookie.name] = datetime.fromtimestamp(cookie.expires, tz=timezone.utc)
+        return out
+
+    def longest_lived_cookie(self) -> tuple[str, datetime] | None:
+        """The cookie that outlives the rest, or None if none carry a deadline.
+
+        **Longest, not soonest, and the difference is a trap.** A jar holds more
+        than the thing that authenticates: `CSRFTokenWriteOnly` is rotated per
+        request and carries its own short expiry, so judging by the earliest
+        deadline reports a perfectly good 30-day login as "the option did not
+        take" — backwards, and it sends you hunting a failure that never
+        happened. (Found by ops-monitor while building the same readout.)
+
+        Three shapes to read off the result:
+
+        - a deadline weeks out — the option took;
+        - a deadline hours out — it did not;
+        - `None`, no cookie stamped at all — not a lifetime question. The server
+          is enforcing an idle timeout, and the fix is a keepalive ping rather
+          than a longer session.
+        """
+        expiries = self.cookie_expiries()
+        if not expiries:
+            return None
+        name = max(expiries, key=lambda k: expiries[k])
+        return name, expiries[name]
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise to plain JSON-safe data, independent of where it is stored.
 

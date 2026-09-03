@@ -34,6 +34,23 @@ class TripletexConfig(BaseModel):
     csrf_token: str | None = None
     context_id: str | None = None
 
+    # Ask Visma Connect to remember this device at the MFA step, so the next
+    # login skips the code entirely. The trusted-device cookie is stored with
+    # the session and replayed on the next login.
+    #
+    # Off by default, and deliberately so: this puts a durable second factor on
+    # disk. It is the same file as the session cookie beside it and no easier to
+    # steal, but it lives far longer — Visma offers 30 days — so switching it on
+    # is a deployment's decision rather than a library default. The payoff is
+    # unattended re-login: with it, a dead session repairs itself from username
+    # and password alone.
+    trust_device: bool = False
+
+    # Ask for a long-lived session ("stay signed in") if the login form offers
+    # it. Separate from `trust_device`: this lengthens the session, that one
+    # removes the MFA prompt. Off by default for the same reason.
+    persistent_session: bool = False
+
     base_url: str = "https://tripletex.no"
     session_dir: Path = Field(default_factory=lambda: Path.home() / ".tripletex")
 
