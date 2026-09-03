@@ -233,6 +233,76 @@ class Reminder(BaseModel):
         return (self.total_charge or Decimal(0)) + (self.interests or Decimal(0))
 
 
+# --- Employment and wage history ---
+
+
+class SalaryRow(BaseModel):
+    """One salary as of a date — an `EmploymentDetails` row.
+
+    An employment carries a list of these, which together are the wage history:
+    each row states what the terms became on `date` and holds until the next.
+    Bonita Handel has 180 of them across 81 employments, reaching back to 2015.
+    """
+
+    id: Optional[int] = None
+    date: Optional[datetime.date] = None
+    annual_salary: Optional[Decimal] = Field(default=None, alias="annualSalary")
+    monthly_salary: Optional[Decimal] = Field(default=None, alias="monthlySalary")
+    hourly_wage: Optional[Decimal] = Field(default=None, alias="hourlyWage")
+    percentage_of_full_time: Optional[Decimal] = Field(
+        default=None, alias="percentageOfFullTimeEquivalent"
+    )
+    employment_type: Optional[str] = Field(default=None, alias="employmentType")
+    employment_form: Optional[str] = Field(default=None, alias="employmentForm")
+    remuneration_type: Optional[str] = Field(default=None, alias="remunerationType")
+    working_hours_scheme: Optional[str] = Field(
+        default=None, alias="workingHoursScheme"
+    )
+    shift_duration_hours: Optional[Decimal] = Field(
+        default=None, alias="shiftDurationHours"
+    )
+    occupation_code: Optional[dict] = Field(default=None, alias="occupationCode")
+
+    model_config = {"populate_by_name": True}
+
+
+class LeaveOfAbsence(BaseModel):
+    """A period of leave against an employment."""
+
+    id: int
+    employment: Optional[dict] = None
+    start_date: Optional[datetime.date] = Field(default=None, alias="startDate")
+    end_date: Optional[datetime.date] = Field(default=None, alias="endDate")
+    percentage: Optional[Decimal] = None
+    type: Optional[str] = None
+    is_wage_deduction: bool = Field(default=False, alias="isWageDeduction")
+
+    model_config = {"populate_by_name": True}
+
+
+class HolidaySettings(BaseModel):
+    """Vacation entitlement and pay percentages for a year.
+
+    `vacation_pay_percentage_2` is the over-60 rate, which the HTML scrape this
+    replaces never picked up.
+    """
+
+    id: int
+    year: Optional[int] = None
+    days: Optional[Decimal] = None
+    vacation_pay_percentage: Optional[Decimal] = Field(
+        default=None, alias="vacationPayPercentage1"
+    )
+    vacation_pay_percentage_2: Optional[Decimal] = Field(
+        default=None, alias="vacationPayPercentage2"
+    )
+    is_max_percentage_2_amount_6g: bool = Field(
+        default=False, alias="isMaxPercentage2Amount6G"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 # --- Dashboard compliance reminders ---
 
 
@@ -434,15 +504,29 @@ class EmploymentPeriod(BaseModel):
     """One employment period (the API's Employment object).
 
     Distinct from `Employment` above, which is the salary-history block scraped
-    from the employee salary page.
+    from the employee salary page. Both exist because the scrape predates the
+    discovery that `/v2/employee/employment` carries the same history; new work
+    should use this one.
     """
 
     id: Optional[int] = None
+    employee: Optional[dict] = None
+    employment_id: Optional[str] = Field(default=None, alias="employmentId")
     start_date: Optional[datetime.date] = Field(default=None, alias="startDate")
     end_date: Optional[datetime.date] = Field(default=None, alias="endDate")
     end_reason: Optional[str] = Field(default=None, alias="employmentEndReason")
     division: Optional[dict] = None
     is_main_employer: bool = Field(default=False, alias="isMainEmployer")
+    tax_deduction_code: Optional[str] = Field(default=None, alias="taxDeductionCode")
+    last_salary_change_date: Optional[datetime.date] = Field(
+        default=None, alias="lastSalaryChangeDate"
+    )
+    #: The wage history. Each row states what the terms became on its date and
+    #: holds until the next supersedes it. Empty unless asked for — see
+    #: `endpoints.employees.list_employments`.
+    salary_history: list["SalaryRow"] = Field(
+        default_factory=list, alias="employmentDetails"
+    )
     # When set, Tripletex revokes the employee's login when the period ends.
     removes_access_at_end: bool = Field(
         default=False, alias="isRemoveAccessAtEmploymentEnded"
@@ -454,6 +538,18 @@ class EmploymentPeriod(BaseModel):
     def division_name(self) -> str:
         """Division (unit) name, if the nested division object was expanded."""
         return self.division.get("name", "") if self.division else ""
+
+    @property
+    def division_organization_number(self) -> Optional[str]:
+        """The unit's org number as a field, rather than scraped out of a name."""
+        return (self.division or {}).get("organizationNumber")
+
+    def salary_on(self, when: datetime.date) -> Optional["SalaryRow"]:
+        """The row in force on `when` — the latest dated at or before it."""
+        applicable = [
+            r for r in self.salary_history if r.date is not None and r.date <= when
+        ]
+        return max(applicable, key=lambda r: r.date) if applicable else None
 
     def is_active(self, on: Optional[datetime.date] = None) -> bool:
         """True if the period covers `on` (today by default)."""
