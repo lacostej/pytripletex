@@ -195,8 +195,9 @@ def _parse_timestamp(raw: Any) -> datetime | None:
     return parsed
 
 
-#: A deadline at least this far out is what asking for a persistent session or a
-#: trusted device should look like. Below it, the option did not take.
+#: Below this, a session is worth flagging as needing refreshment soon. It is
+#: not a verdict on whether a login option worked: the baseline login already
+#: produces a 30-day deadline, so a long one proves nothing about options.
 PERSISTENT_THRESHOLD = timedelta(days=7)
 
 #: Cookies that carry a long deadline and authenticate nothing. Reporting the
@@ -303,12 +304,15 @@ def describe_session(
             "likely rotated rather than fatal"
         )
 
-    lines.append(
-        "              looks persistent"
-        if left >= PERSISTENT_THRESHOLD
-        else "              short-lived — a persistent-session or trusted-device"
-        " option, if one was offered, did not take"
-    )
+    # Deliberately no verdict on a long deadline. A plain login with no options
+    # at all is issued remember2sv at 30 days, so "looks persistent" printed on
+    # every run and read as confirmation that an option had taken — when it was
+    # simply the baseline. A short deadline still earns a line, because that one
+    # is actionable regardless of what caused it.
+    if left < PERSISTENT_THRESHOLD:
+        lines.append(
+            "              short-lived — this session needs refreshing soon"
+        )
     return lines
 
 
