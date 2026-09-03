@@ -125,9 +125,19 @@ def run_async(coro):
     help="Ask for a long-lived session if the login form offers it. "
     "Overrides persistent_session in config.toml.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Log in again even if the stored session still works. Needed to "
+    "apply a login option, which only takes effect on a login that happens.",
+)
 @click.pass_context
-def login(ctx, trust_device, persistent_session):
-    """Interactive Visma Connect login. Persists session to ~/.tripletex/."""
+def login(ctx, trust_device, persistent_session, force):
+    """Interactive Visma Connect login. Persists session to ~/.tripletex/.
+
+    Without --force this only logs in when the stored session is missing or
+    dead, so re-running it on a healthy session is a no-op.
+    """
     from tripletex.client import TripletexClient
 
     async def _login():
@@ -139,7 +149,7 @@ def login(ctx, trust_device, persistent_session):
             config.persistent_session = persistent_session
 
         client = TripletexClient.web(config)
-        await client.authenticate()
+        await client.authenticate(force=force)
         click.echo(f"Logged in. Context ID: {client.session.context_id}")
         name = config.env_name or "default"
         click.echo(f"Session saved to {config.session_dir / f'session_{name}.json'}")
