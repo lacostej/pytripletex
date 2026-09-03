@@ -346,3 +346,83 @@ class TestSeedingIsGatedOnTrustDevice:
             await visma_connect._do_login_phase1(config, httpx.AsyncClient(), jar)
 
         assert seen["names"] == []
+
+
+class TestCookieCollectionPreservesExpiry:
+    """`jar.set(name, value, domain, path)` builds a fresh cookie and defaults
+    everything else, so it silently turns a 30-day cookie into a session one.
+
+    Measured: all 16 cookies in a real session file recorded `expires: null`,
+    including the trusted-device cookie, which made a granted 30-day trust look
+    like the server declining to stamp any deadline.
+    """
+
+    def _response(self, *, expires=None, history=()):
+        import http.cookiejar
+
+        def make(name, exp):
+            resp = httpx.Response(200, request=httpx.Request("GET", "https://connect.visma.com/"))
+            resp.cookies.jar.set_cookie(http.cookiejar.Cookie(
+                version=0, name=name, value="v", port=None, port_specified=False,
+                domain=".connect.visma.com", domain_specified=True,
+                domain_initial_dot=True, path="/", path_specified=True,
+                secure=True, expires=exp, discard=exp is None,
+                comment=None, comment_url=None, rest={"HttpOnly": None},
+            ))
+            return resp
+
+        final = make("remember2sv", expires)
+        final.history = [make(n, e) for n, e in history]
+        return final
+
+    def test_expiry_survives_collection(self):
+        from tripletex.auth.visma_connect import _collect_cookies
+        import time
+
+        deadline = int(time.time() + 30 * 86400)
+        jar = httpx.Cookies()
+        _collect_cookies(jar, self._response(expires=deadline))
+
+        cookie, = jar.jar
+        assert cookie.name == "remember2sv"
+        assert cookie.expires == deadline
+
+    def test_secure_and_httponly_survive(self):
+        from tripletex.auth.visma_connect import _collect_cookies
+        import time
+
+        jar = httpx.Cookies()
+        _collect_cookies(jar, self._response(expires=int(time.time() + 86400)))
+
+        cookie, = jar.jar
+        assert cookie.secure is True
+        assert "HttpOnly" in (cookie._rest or {})
+
+    def test_cookies_set_on_a_redirect_are_kept(self):
+        """Visma sets the interesting cookies on the 302 from /totp/auth, not on
+        the page it lands you."""
+        from tripletex.auth.visma_connect import _collect_cookies
+        import time
+
+        deadline = int(time.time() + 30 * 86400)
+        jar = httpx.Cookies()
+        _collect_cookies(jar, self._response(history=[("TrustedOnRedirect", deadline)]))
+
+        by_name = {c.name: c for c in jar.jar}
+        assert by_name["TrustedOnRedirect"].expires == deadline
+
+    def test_collected_expiry_reaches_the_saved_session(self):
+        """End to end: what is collected is what `longest_lived_cookie` reads."""
+        from tripletex.auth.visma_connect import _collect_cookies
+        from tripletex.session import WebSession
+        import time
+
+        deadline = int(time.time() + 30 * 86400)
+        jar = httpx.Cookies()
+        _collect_cookies(jar, self._response(expires=deadline))
+
+        restored = WebSession.from_dict(
+            WebSession(cookies=jar, context_id="1").to_dict()
+        )
+        name, _ = restored.longest_lived_cookie()
+        assert name == "remember2sv"
