@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 import click
 
 from tripletex.config import load_config
-from tripletex.session import AuthUnavailable, require_web_session
+from tripletex.session import (
+    AuthUnavailable,
+    SessionStatus,
+    WebSession,
+    describe_session,
+    require_web_session,
+)
 
 
 @click.group()
@@ -138,25 +144,51 @@ def login(ctx, trust_device, persistent_session):
         name = config.env_name or "default"
         click.echo(f"Session saved to {config.session_dir / f'session_{name}.json'}")
 
-        # Report the longest deadline in the jar, which is how you tell whether
-        # the options took. Longest, not soonest: the CSRF token rotates per
-        # request and expires within the hour, so the earliest deadline would
-        # call a good 30-day login a failure.
-        longest = client.session.longest_lived_cookie()
-        if longest is None:
-            click.echo(
-                "No cookie carries an expiry — the server is enforcing an idle "
-                "timeout rather than a fixed lifetime, so a keepalive is the "
-                "fix rather than a longer session."
-            )
-        else:
-            cookie_name, when = longest
-            days = (when - datetime.now(timezone.utc)).days
-            click.echo(f"Longest-lived cookie: {cookie_name} — expires {when:%Y-%m-%d %H:%M} UTC ({days}d)")
+        # Same readout as `tripletex status`, deliberately: the two get
+        # compared minutes apart when checking whether an option took.
+        for line in describe_session(client.session):
+            click.echo(line)
 
         await client.close()
 
     run_async(_login())
+
+
+@cli.command()
+@click.pass_context
+def status(ctx):
+    """Report the stored web session: age, deadlines, and whether it works."""
+    from tripletex.client import TripletexClient
+
+    async def _status():
+        config = ctx.obj["config"]
+        name = config.env_name or "default"
+        path = config.session_dir / f"session_{name}.json"
+
+        session = WebSession.load(path)
+        if session is None:
+            raise click.ClickException(
+                f"No session stored at {path}. Run: tripletex"
+                f"{f' --env {config.env_name}' if config.env_name else ''} login"
+            )
+
+        for line in describe_session(session):
+            click.echo(line)
+
+        # Whether it still authenticates is a separate question from whether it
+        # has expired on paper, and both are worth printing: a session can be
+        # inside its deadline and still rejected.
+        client = TripletexClient.web(config)
+        client._session = session
+        try:
+            state = await client.session_status()
+            click.echo(f"status      : {state.value.upper()}")
+        except Exception as exc:  # noqa: BLE001 — transient, not a verdict
+            click.echo(f"status      : could not check — {type(exc).__name__}: {exc}")
+        finally:
+            await client.close()
+
+    run_async(_status())
 
 
 # --- Companies ---
