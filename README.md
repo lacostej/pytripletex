@@ -83,6 +83,10 @@ Password required, code hopefully not. Note that `remember2sv` is issued whether
 the box is ticked or not, so it cannot be used to tell whether the grant was
 given.
 
+`docs/visma-connect-auth.md` documents the whole model — the two parties, the
+three independent lifetimes, every cookie and what it does, and which claims are
+documented, measured or still guesswork.
+
 Any of them can be set for one login without touching the config:
 
 ```bash
