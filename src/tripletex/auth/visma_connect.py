@@ -402,11 +402,13 @@ async def _do_login_phase1(
     # Step 1: Follow redirect chain from Tripletex to Visma Connect login page
     url = f"{config.base_url}/execute/login"
 
-    # Carry a trusted-device cookie into the new login, but only when device
-    # trust was actually asked for. Seeding unconditionally changed the default
-    # login path for everyone and broke it — see `_seed_durable_cookies`.
+    # Carry the identity provider's session, which is what lets this skip
+    # authentication entirely. Gated on its own setting rather than on
+    # `trust_device`: they were once the same flag, which was wrong — one
+    # re-uses an existing session, the other ticks a checkbox whose effect is
+    # unverified.
     cookies = httpx.Cookies()
-    if prior_cookies is not None and config.trust_device:
+    if prior_cookies is not None and config.reuse_idp_session:
         carried = _seed_durable_cookies(cookies, prior_cookies)
         print(
             f"Carrying {carried} durable cookie(s) from the previous session."
@@ -496,7 +498,7 @@ async def _do_login_phase1(
     forms = _get_forms(resp.text)
     mfa_form = _find_form_with_field(forms, "AuthCode") or _find_form_with_field(forms, "Totp")
 
-    if mfa_form and prior_cookies is not None and config.trust_device:
+    if mfa_form and prior_cookies is not None and config.reuse_idp_session:
         # The whole point of carrying the grant was to skip this step, so a
         # prompt here is the answer to whether Visma honours it — provided the
         # cookie really went out, which is worth stating rather than assuming.

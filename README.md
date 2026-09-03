@@ -36,37 +36,44 @@ employee_token = "..."
 ### Staying logged in
 
 Web sessions die on their own schedule — observed anywhere from about a day to
-about three months — and every death costs an interactive MFA login. Two opt-in
-settings reduce that, both off by default:
+about three months — and a death used to cost an interactive MFA login.
+
+**Most of the time it no longer does.** Tripletex is a service provider in front
+of Visma Connect, so a dead Tripletex session leaves the identity provider's
+session untouched — which is why a browser signing back in is never asked for a
+code. `reuse_idp_session`, on by default, reproduces that: the stored
+`connect.visma.com` cookies are carried into the next login, and if Visma still
+recognises the session the login completes with no password and no code.
+
+```
+$ tripletex login --force
+Carrying 5 durable cookie(s) from the previous session.
+Visma Connect session still valid — no login needed.
+```
+
+That is what makes an unattended re-login possible. It is on by default because
+it changes nothing about what is stored — those cookies were always written to
+the session file — only whether they are presented. Turn it off with
+`reuse_idp_session = false` to force a full authentication every time.
+
+Two further settings exist and neither is proven:
 
 ```toml
 [prod]
-username = "you@example.com"
-password_visma = "..."
 trust_device = true          # tick "remember this device for 30 days" at the MFA step
 persistent_session = true    # ask for a long-lived session, if the form offers one
 ```
 
-**What actually removes the MFA prompt is not the checkbox — it is the identity
-provider's own session.** Tripletex is a service provider in front of Visma
-Connect, and logging out of Tripletex leaves the Visma session untouched, which
-is why a browser signing back in is never asked for a code. Setting
-`trust_device` makes the login carry the stored `connect.visma.com` cookies into
-the next login, reproducing that.
-
-`trust_device` also ticks "remember this device for 30 days" at the MFA step.
-Whether that has any effect is **unverified**: a login with the box explicitly
+`trust_device`'s **effect is unverified**. A login with the box explicitly
 unticked is issued the same `remember2sv` cookie, with the same 30-day expiry,
-as one that ticks it — so nothing observed so far distinguishes them.
+as one that ticks it, and carrying that cookie *without* an identity-provider
+session did not skip the MFA step. Nothing observed distinguishes the two, so it
+may be inert. Do not rely on it.
 
-**It puts a live Visma Connect session on disk.** That is the credential for the
-identity provider rather than for one service behind it, which is why this is
-opt-in rather than the default.
-
-Either flag can be set for one login without touching the config:
+Any of them can be set for one login without touching the config:
 
 ```bash
-tripletex --env prod login --trust-device
+tripletex --env prod login --no-reuse-idp-session   # force a full authentication
 ```
 
 `login` and `tripletex status` print the same readout, which is how you tell

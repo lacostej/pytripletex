@@ -34,16 +34,28 @@ class TripletexConfig(BaseModel):
     csrf_token: str | None = None
     context_id: str | None = None
 
-    # Ask Visma Connect to remember this device at the MFA step, so the next
-    # login skips the code entirely. The trusted-device cookie is stored with
-    # the session and replayed on the next login.
+    # Carry the stored connect.visma.com cookies into a new login, so a still-
+    # valid Visma Connect session is re-used instead of authenticating again.
     #
-    # Off by default, and deliberately so: this puts a durable second factor on
-    # disk. It is the same file as the session cookie beside it and no easier to
-    # steal, but it lives far longer — Visma offers 30 days — so switching it on
-    # is a deployment's decision rather than a library default. The payoff is
-    # unattended re-login: with it, a dead session repairs itself from username
-    # and password alone.
+    # This is what removes the MFA prompt, and it is simply what a browser does:
+    # Tripletex is a service provider in front of Visma Connect, so logging out
+    # of Tripletex — or having its session expire — leaves the identity
+    # provider's session untouched. Measured: with this on, a login whose
+    # Tripletex session had died completed with no password and no code.
+    #
+    # On by default because it changes nothing about what is stored — those
+    # cookies were always written to the session file — only whether they are
+    # presented. Turn it off to force a full authentication every time.
+    reuse_idp_session: bool = True
+
+    # Tick "remember this device for 30 days" at the MFA step.
+    #
+    # **Effect unverified.** A login with the box explicitly unticked is issued
+    # the same `remember2sv` cookie, with the same 30-day expiry, as one that
+    # ticks it, and carrying that cookie without an identity-provider session
+    # did not skip the MFA step. Nothing observed distinguishes the two, so this
+    # may well be inert. Kept because it is what the form offers and it costs
+    # nothing; do not rely on it.
     trust_device: bool = False
 
     # Ask for a long-lived session ("stay signed in") if the login form offers
