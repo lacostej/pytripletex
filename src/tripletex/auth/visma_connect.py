@@ -289,13 +289,23 @@ def _trusted_device_fields(state: LoginState) -> dict[str, tuple[str, bool]]:
 #: The identity provider. Tripletex is only the service provider in front of it.
 IDP_DOMAIN = "connect.visma.com"
 
-#: Per-request scratch that must never be replayed, even from the IdP domain.
-#: Antiforgery is the dangerous one: ASP.NET validates the form's freshly-issued
+#: Cookies from the IdP that must not be replayed into a new login.
+#:
+#: `.AspNetCore.Antiforgery.*` — ASP.NET validates the form's freshly-issued
 #: `__RequestVerificationToken` against this cookie, so a stale one fails the
-#: check and Visma silently re-renders the login page instead of advancing. That
-#: reads as "could not find password form" and cost two live logins to pin down.
-#: `returnUrl` pins the flow to a previous authorization request.
-_NEVER_REPLAY = (".aspnetcore.antiforgery.", "returnurl")
+#: check and Visma silently re-renders the login page instead of advancing.
+#:
+#: `returnUrl` — pins the flow to a previous authorization request.
+#:
+#: `rememberUsername` — narrowed down rather than reasoned out. Two live runs
+#: differed by exactly three cookies reaching Visma: carrying `remember2sv`
+#: alone advanced normally, carrying it alongside `rememberUsername` and
+#: `.AspNetCore.Culture` bounced the email step. Culture is plain text
+#: (`c=en-US|uic=en-US`) and cannot plausibly fail validation; `rememberUsername`
+#: is an ASP.NET Data Protection blob, which is exactly the kind of value that
+#: fails to unprotect when stale. It is excluded on that evidence, and it costs
+#: nothing — we submit the username explicitly on every login.
+_NEVER_REPLAY = (".aspnetcore.antiforgery.", "returnurl", "rememberusername")
 
 
 def _seed_durable_cookies(target: httpx.Cookies, source: httpx.Cookies) -> int:
@@ -309,23 +319,25 @@ def _seed_durable_cookies(target: httpx.Cookies, source: httpx.Cookies) -> int:
     browser, logging out of Tripletex and back in skips MFA entirely.
 
     So what has to survive is the whole `connect.visma.com` jar, minus the
-    scratch in `_NEVER_REPLAY`. Two earlier shapes both failed for the same
-    underlying reason, that the rule was about the wrong thing:
+    entries in `_NEVER_REPLAY`. Two earlier shapes failed:
 
-    - everything persistent, minus known-bad names — carried AWS load-balancer
-      cookies and `isTripletexUser` from tripletex.no, which belong to the
-      service provider and bounced the email step;
+    - everything persistent, minus known-bad names — bounced the email step.
+      Note *why*, because the obvious reading is wrong: it also carried
+      tripletex.no cookies, but those are domain-scoped and were never sent to
+      Visma, so they were inert. Of what did reach Visma, `rememberUsername` is
+      the one now excluded.
     - `remember2sv` alone — the device grant, correctly issued at 30 days and
       correctly presented, but on its own not enough: Visma still asked for a
-      code.
+      code, because the IdP session was missing.
 
     Expiry is deliberately ignored here. A session cookie dies when a *browser*
     closes, which is a statement about a browser and not about the server-side
     session it names; that session stays valid, and re-presenting the cookie is
     exactly what a still-open browser does.
 
-    Tripletex's own cookies are never carried. They are dead — that is why we
-    are logging in — and they are what the login is about to replace.
+    Tripletex's own cookies are not carried. Not because they would leak — the
+    jar is domain-scoped and would never send them to Visma — but because they
+    are dead, and they are what this login is about to replace.
     """
     copied = 0
     for cookie in source.jar:
