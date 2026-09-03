@@ -6,7 +6,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from tripletex.endpoints._paging import paginate
-from tripletex.models import Invoice
+from tripletex.models import Invoice, Reminder
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -76,3 +76,35 @@ async def create_invoice(
     """POST /v2/invoice"""
     data = await client.post_json("/v2/invoice", json_body=payload)
     return Invoice.model_validate(data.get("value", data))
+
+
+async def list_reminders(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+    customer_id: int | None = None,
+    limit: int | None = None,
+) -> list[Reminder]:
+    """Reminders sent on unpaid invoices over a date range.
+
+    GET /v2/reminder — documented, and reachable with API-token auth.
+
+    Two things to get right, both of which cost a wrong turn:
+
+    - **The path is `/v2/reminder`, not `/v2/invoice/reminder`**, which 422s and
+      looks like the feature is web-only.
+    - **The date parameters are `dateFrom`/`dateTo`**, not the `invoiceDateFrom`
+      pair the invoice endpoints take; the wrong names also 422.
+
+    Prefer this over the `reminders` array nested in `/v2/invoice`. That works
+    but needs a full invoice sweep to find a handful of rows, cannot be filtered
+    by date server-side, and buries `charge`, `interests` and `interestRate`.
+
+    `fields` is deliberately not used: the endpoint rejects a nested
+    `invoice(...)` expansion with 400, so callers join on `invoice_id`.
+    """
+    params = {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
+    if customer_id is not None:
+        params["customerId"] = str(customer_id)
+    values = await paginate(client, "/v2/reminder", params=params, limit=limit)
+    return [Reminder.model_validate(r) for r in values]
