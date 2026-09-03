@@ -217,10 +217,19 @@ _NOT_AUTHENTICATING = (
     "awsalbtgcors",
 )
 
-#: Names Visma Connect uses for the trusted-device grant. `remember2sv` —
-#: "remember 2-step verification" — is the one observed, stamped 30 days out
-#: after a login that ticks `RememberCode`.
-TRUST_COOKIES = ("remember2sv", "rememberdevice", "trusteddevice")
+#: Cookies related to two-step verification on the IdP.
+#:
+#: **`remember2sv` is not a device grant, despite the name and the 30-day
+#: expiry.** Measured: a login that posted `RememberCode=false` — the box
+#: explicitly unticked — was issued `remember2sv` stamped 30 days out, exactly
+#: as a login that ticked it. Visma sets it on any successful 2SV, so its
+#: presence says nothing about whether device trust was granted, and reporting
+#: it as evidence of one was wrong.
+#:
+#: Kept only for the seeding diagnostic, which reports what was carried. There
+#: is no known cookie that indicates a device grant, so nothing claims to read
+#: one.
+TWO_STEP_COOKIES = ("remember2sv", "rememberdevice", "trusteddevice")
 
 
 def _is_authenticating(name: str) -> bool:
@@ -257,18 +266,10 @@ def describe_session(
             f"({since.days}d {since.seconds // 3600}h ago)"
         )
 
-    # The trusted-device grant, which is the thing the option was for and is
-    # worth its own line rather than being buried in a deadline comparison.
-    trust = session.trusted_device_cookie()
-    if trust is not None:
-        trust_name, trust_when = trust
-        left = trust_when - now
-        lines.append(
-            f"device trust: {trust_when:%Y-%m-%d %H:%M UTC} ({trust_name}) — "
-            f"{left.days}d left, so the next login should skip MFA"
-            if left.total_seconds() > 0
-            else f"device trust: expired {trust_when:%Y-%m-%d %H:%M UTC} ({trust_name})"
-        )
+    # There is deliberately no "device trust" line. `remember2sv` looks like the
+    # grant — right name, 30-day expiry — but a login that explicitly posted
+    # RememberCode=false was issued it just the same, so it indicates nothing
+    # about device trust and reporting it as a grant misled every reading.
 
     deadlines = [
         (name, when)
@@ -396,20 +397,6 @@ class WebSession:
         to show what is merely rotating — see `describe_session`.
         """
         return sorted(self.cookie_expiries().items(), key=lambda pair: pair[1])
-
-    def trusted_device_cookie(self) -> tuple[str, datetime] | None:
-        """The trusted-device grant and when it lapses, if one was issued.
-
-        This is the direct answer to "did ticking the box work". Measured: after
-        a login posting `RememberCode=true`, `remember2sv` comes back on
-        `.connect.visma.com` stamped 30 days out. Before the fix that let the
-        checkbox through, the same cookie was present but session-scoped.
-        """
-        expiries = self.cookie_expiries()
-        for name, when in expiries.items():
-            if name.lower() in TRUST_COOKIES:
-                return name, when
-        return None
 
     def longest_lived_cookie(self) -> tuple[str, datetime] | None:
         """The cookie that outlives the rest, or None if none carry a deadline.
