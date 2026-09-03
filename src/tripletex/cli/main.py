@@ -126,13 +126,19 @@ def run_async(coro):
     "Overrides persistent_session in config.toml.",
 )
 @click.option(
+    "--reuse-idp-session/--no-reuse-idp-session",
+    default=None,
+    help="Re-use a still-valid Visma Connect session instead of authenticating "
+    "again. On by default; this is what skips the MFA prompt.",
+)
+@click.option(
     "--force",
     is_flag=True,
     help="Log in again even if the stored session still works. Needed to "
     "apply a login option, which only takes effect on a login that happens.",
 )
 @click.pass_context
-def login(ctx, trust_device, persistent_session, force):
+def login(ctx, trust_device, persistent_session, reuse_idp_session, force):
     """Interactive Visma Connect login. Persists session to ~/.tripletex/.
 
     Without --force this only logs in when the stored session is missing or
@@ -147,6 +153,8 @@ def login(ctx, trust_device, persistent_session, force):
             config.trust_device = trust_device
         if persistent_session is not None:
             config.persistent_session = persistent_session
+        if reuse_idp_session is not None:
+            config.reuse_idp_session = reuse_idp_session
 
         client = TripletexClient.web(config)
         await client.authenticate(force=force)

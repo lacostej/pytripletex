@@ -357,11 +357,71 @@ class TestIdpSessionSeeding:
         assert count == 5
 
 
-class TestSeedingIsGatedOnTrustDevice:
-    async def test_no_seeding_when_trust_device_is_off(self, monkeypatch):
-        """Seeding unconditionally changed the default login path for everyone
-        and broke it. With the option off, the login must start from an empty
-        jar exactly as before."""
+class TestSeedingIsGatedSeparately:
+    """Carry-over is its own setting, not a side effect of `trust_device`.
+
+    They were one flag until a login with the checkbox never ticked — and so no
+    device grant of any kind — still skipped MFA on the strength of the carried
+    identity-provider session. One re-uses a session, the other ticks a box
+    whose effect is unverified; conflating them made the flag name lie.
+    """
+
+    async def test_trust_device_alone_does_not_seed(self, monkeypatch):
+        from tripletex.auth import visma_connect
+        from tripletex.config import TripletexConfig
+
+        seen: dict = {}
+
+        async def fake(http, url, cookies):
+            seen["names"] = [c.name for c in cookies.jar]
+            raise RuntimeError("stop here")
+
+        monkeypatch.setattr(visma_connect, "_follow_redirects", fake)
+
+        jar = httpx.Cookies()
+        jar.set("session", "abc", domain="connect.visma.com")
+
+        config = TripletexConfig(
+            username="u", password_visma="p",
+            trust_device=True, reuse_idp_session=False,
+        )
+        with pytest.raises(RuntimeError):
+            await visma_connect._do_login_phase1(config, httpx.AsyncClient(), jar)
+
+        assert seen["names"] == []
+
+    async def test_reuse_seeds_without_trust_device(self, monkeypatch):
+        """The measured case: no grant asked for, session carried, MFA skipped."""
+        from tripletex.auth import visma_connect
+        from tripletex.config import TripletexConfig
+
+        seen: dict = {}
+
+        async def fake(http, url, cookies):
+            seen["names"] = sorted(c.name for c in cookies.jar)
+            raise RuntimeError("stop here")
+
+        monkeypatch.setattr(visma_connect, "_follow_redirects", fake)
+
+        jar = httpx.Cookies()
+        jar.set("session", "abc", domain="connect.visma.com")
+        jar.set("sid", "def", domain="connect.visma.com")
+
+        config = TripletexConfig(
+            username="u", password_visma="p", trust_device=False,
+        )
+        with pytest.raises(RuntimeError):
+            await visma_connect._do_login_phase1(config, httpx.AsyncClient(), jar)
+
+        assert seen["names"] == ["session", "sid"]
+
+    async def test_reuse_is_on_by_default(self):
+        from tripletex.config import TripletexConfig
+
+        assert TripletexConfig(username="u", password_visma="p").reuse_idp_session
+
+    async def test_no_seeding_when_reuse_is_off(self, monkeypatch):
+        """Off means a full authentication, starting from an empty jar."""
         from tripletex.auth import visma_connect
         from tripletex.config import TripletexConfig
 
@@ -376,7 +436,9 @@ class TestSeedingIsGatedOnTrustDevice:
         jar = httpx.Cookies()
         jar.set("remember2sv", "abc", domain="connect.visma.com")
 
-        config = TripletexConfig(username="u", password_visma="p", trust_device=False)
+        config = TripletexConfig(
+            username="u", password_visma="p", reuse_idp_session=False
+        )
         with pytest.raises(RuntimeError):
             await visma_connect._do_login_phase1(config, httpx.AsyncClient(), jar)
 
