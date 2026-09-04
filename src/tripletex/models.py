@@ -303,6 +303,111 @@ class HolidaySettings(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# --- Tax cards (skattekort) ---
+
+
+class AdvanceTaxcard(BaseModel):
+    """One deduction rule on a tax card — a *trekkode*.
+
+    A card carries several, one per income kind (main employer, secondary
+    employer, NAV), and they can differ. `type` 2 is a percentage card
+    (Prosentkort), where `prosentsats` applies; a table card uses `tabellnummer`
+    instead. `frikortbelop` is the tax-free allowance on a Frikort.
+    """
+
+    trekkode: Optional[str] = None
+    trekkode_description: Optional[str] = Field(default=None, alias="trekkodeDescription")
+    type: Optional[int] = None
+    type_description: Optional[str] = Field(default=None, alias="typeDescription")
+    tabelltype: Optional[str] = None
+    tabellnummer: Optional[str] = None
+    prosentsats: Optional[Decimal] = None
+    antall_mnd_for_trekk: Optional[Decimal] = Field(default=None, alias="antallMndForTrekk")
+    frikortbelop: Optional[Decimal] = None
+    remaining_free_card_amount: Optional[Decimal] = Field(
+        default=None, alias="remainingFreeCardAmount"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+#: The one status meaning nothing is wrong. Everything else needs a human.
+TAXCARD_OK = "skattekortopplysningerOK"
+
+
+class Taxcard(BaseModel):
+    """An employee's tax card for a year, as Tripletex holds it.
+
+    **Read `status`, never `status_description`.** Tripletex returns
+    *"det har oppstått en ukjent feil"* — "an unknown error occurred" — as the
+    description of the healthy `skattekortopplysningerOK` status, on every good
+    card. Measured across 2024-2026 on Bonita Handel: 35, 40 and 42 cards
+    respectively, all fine, all described as an unknown error. Keying on the
+    description reports nearly the whole payroll as broken.
+    """
+
+    id: Optional[int] = None
+    status: Optional[str] = None
+    status_description: Optional[str] = Field(default=None, alias="statusDescription")
+    #: Free text alongside the status. `kildeskattPaaLoenn` — PAYE for foreign
+    #: workers — appears here while `status` stays OK, so it is a note rather
+    #: than a fault, but one payroll needs to know about.
+    additional_info: Optional[str] = Field(default=None, alias="additionalInfo")
+    year_of_income: Optional[int] = Field(default=None, alias="yearOfIncome")
+    date: Optional[datetime.date] = None
+    issued_date: Optional[datetime.date] = Field(default=None, alias="utstedtDato")
+    employee_identifier: Optional[str] = Field(
+        default=None, alias="arbeidstakerIdentifikator"
+    )
+    order_id: Optional[int] = Field(default=None, alias="orderId")
+    deduction_period: Optional[int] = Field(default=None, alias="deductionPeriod")
+    advance_taxcards: list[AdvanceTaxcard] = Field(
+        default_factory=list, alias="advanceTaxcards"
+    )
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def is_ok(self) -> bool:
+        return self.status == TAXCARD_OK
+
+
+class TaxcardEmployee(BaseModel):
+    """An employee and their tax card, or the absence of one.
+
+    `taxcard` is `None` when no card was ever ordered or returned — distinct
+    from a card that came back with a problem, and worth separating: one is a
+    process failure, the other a fact about the person.
+    """
+
+    id: Optional[int] = None
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+    number: Optional[str] = None
+    taxcard: Optional[Taxcard] = None
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def has_card(self) -> bool:
+        return self.taxcard is not None and self.taxcard.id is not None
+
+    @property
+    def issue(self) -> Optional[str]:
+        """What needs attention, or None. See `Taxcard` for why not the
+        description field."""
+        if not self.has_card:
+            return "no tax card has been ordered or returned"
+        if not self.taxcard.is_ok:
+            return self.taxcard.status
+        return None
+
+    @property
+    def note(self) -> Optional[str]:
+        """A flag that is not a fault — `kildeskattPaaLoenn` and the like."""
+        info = (self.taxcard.additional_info or "").strip() if self.taxcard else ""
+        return info or None
+
+
 # --- Dashboard compliance reminders ---
 
 
