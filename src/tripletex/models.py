@@ -338,12 +338,22 @@ TAXCARD_OK = "skattekortopplysningerOK"
 class Taxcard(BaseModel):
     """An employee's tax card for a year, as Tripletex holds it.
 
-    **Read `status`, never `status_description`.** Tripletex returns
-    *"det har oppstått en ukjent feil"* — "an unknown error occurred" — as the
-    description of the healthy `skattekortopplysningerOK` status, on every good
-    card. Measured across 2024-2026 on Bonita Handel: 35, 40 and 42 cards
-    respectively, all fine, all described as an unknown error. Keying on the
-    description reports nearly the whole payroll as broken.
+    **Decide OK-ness from `status`, never from `status_description`.** The
+    description is accurate for the failure statuses but wrong for the healthy
+    one: `skattekortopplysningerOK` is described as *"det har oppstått en ukjent
+    feil"* — "an unknown error occurred" — on every good card, across 2024-2026
+    on Bonita Handel (35, 40 and 42 cards). It reads like a missing enum entry
+    falling through to a generic error string.
+
+    Confirmed not to be a request-side mistake, which was the obvious
+    suspicion: the same pair comes back from `taxcard(*)`, from an explicit
+    `taxcard(status,statusDescription)`, from `statusDescription` alone, from
+    fetching one card directly by id, and from the Tripletex UI's own request
+    captured in the browser.
+
+    So the field is fine to *show* once a card is known to be in a failure
+    state — it is the only human-readable text available, and it is correct
+    there. It just cannot be used to determine whether that state exists.
     """
 
     id: Optional[int] = None

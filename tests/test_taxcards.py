@@ -128,7 +128,13 @@ class TestReading:
 class TestIssueDetection:
     async def test_healthy_card_is_not_an_issue_despite_its_description(self):
         """The trap: `statusDescription` says "an unknown error occurred" on
-        every good card. Keying on it reports the whole payroll as broken."""
+        every good card, so keying on it reports the whole payroll as broken.
+
+        Not a request-side mistake — confirmed identical from `taxcard(*)`, an
+        explicit field pair, `statusDescription` alone, a single-card fetch by
+        id, and the UI's own captured request. The failure statuses describe
+        themselves correctly, so the field is fine to *show* once a card is
+        known to be failing; it just cannot decide whether it is."""
         (e,) = await tc.list_taxcards(
             _client(_rows(_employee(1, "Fine", OK_CARD))), 2026
         )
