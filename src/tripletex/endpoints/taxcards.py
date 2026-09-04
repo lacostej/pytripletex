@@ -45,24 +45,28 @@ def _timestamp(raw: object) -> datetime.datetime | None:
 async def list_taxcards(
     client: TripletexClient,
     year: int,
-    include_quit: bool = False,
+    former_employees: bool = False,
     query: str = "",
 ) -> list[TaxcardEmployee]:
-    """Every employee and their tax card for `year`.
+    """Employees and their tax cards for `year`.
 
     GET /v2/salary/tskinternal/taxcard. The filters are `year`, `hasQuit` and
     `query` — not the `taxcardYear`/`yearOfIncome` the published schema names
     suggest, which answer 422 and read like the endpoint is unavailable.
+
+    **`hasQuit` selects, it does not widen.** `false` returns current
+    employees and `true` returns *only* former ones — the two sets are nearly
+    disjoint. Measured: Handel 30 and 46 with one person in both, Services 15
+    and 13 with four. The overlap is people holding an ended employment and a
+    current one, which happens whenever someone's unit changes. Calling the
+    parameter "include quit" was wrong and produced a tidy, confident,
+    incorrect reading of who was affected — use `all_taxcards` for everyone.
 
     **Paging does not work here and must not be inferred.** `count=0` returns
     the whole set and `fullResultSize` comes back `0` regardless — the third
     paging behaviour in this API, alongside ordinary paging and the
     `>nonPosted` shape. Counting rows is the only way to know how many there
     are.
-
-    `include_quit` widens the set to people who have left: 30 against 46 on one
-    measured company. For "who are we about to pay", leave it off; for a
-    year-end review, turn it on.
     """
     data = await client.get_json(
         _BASE,
@@ -71,21 +75,44 @@ async def list_taxcards(
             "from": "0",
             "year": str(year),
             "query": query,
-            "hasQuit": "true" if include_quit else "false",
+            "hasQuit": "true" if former_employees else "false",
             "fields": _FIELDS,
         },
     )
     return [TaxcardEmployee.model_validate(v) for v in data.get("values", [])]
 
 
+async def all_taxcards(
+    client: TripletexClient, year: int, query: str = ""
+) -> list[TaxcardEmployee]:
+    """Current *and* former employees, deduplicated — two calls, one list.
+
+    Needed because `hasQuit` selects rather than widens, so neither value alone
+    answers "everyone". Someone appearing in both sets is returned once.
+    """
+    current = await list_taxcards(client, year, False, query)
+    former = await list_taxcards(client, year, True, query)
+    merged = {e.id: e for e in current}
+    for e in former:
+        merged.setdefault(e.id, e)
+    return list(merged.values())
+
+
 async def taxcard_issues(
     client: TripletexClient,
     year: int,
-    include_quit: bool = False,
+    scope: str = "current",
 ) -> list[TaxcardEmployee]:
     """Only the employees whose tax card needs a human.
 
-    Covers both shapes: a card that came back with a problem, and no card at
+    `scope` is `"current"`, `"former"` or `"all"`. It defaults to current
+    employees, because that is who you are about to pay — and because the
+    distinction is not cosmetic: on 2026 every outstanding issue across both
+    companies belongs to someone who has *left*, while current staff are clean.
+    A check that quietly mixed the two would raise alarms about people nobody
+    is paying.
+
+    Covers both failure shapes: a card returned with a problem, and no card at
     all. Measured on 2026 — `utgaattDnummerSkattekortForFoedselsnummerErLevert`
     (the employee's D-number expired and a card under their fødselsnummer is
     waiting), `ikkeSkattekort` (no card, so 50% must be withheld), and seven
@@ -94,7 +121,15 @@ async def taxcard_issues(
     A `kildeskattPaaLoenn` note is *not* an issue and is excluded — the status
     stays OK. Read `TaxcardEmployee.note` for those.
     """
-    return [e for e in await list_taxcards(client, year, include_quit) if e.issue]
+    if scope == "all":
+        rows = await all_taxcards(client, year)
+    elif scope == "former":
+        rows = await list_taxcards(client, year, former_employees=True)
+    elif scope == "current":
+        rows = await list_taxcards(client, year, former_employees=False)
+    else:
+        raise ValueError(f"scope must be 'current', 'former' or 'all', not {scope!r}")
+    return [e for e in rows if e.issue]
 
 
 async def altinn_logged_in_until(client: TripletexClient) -> datetime.datetime | None:

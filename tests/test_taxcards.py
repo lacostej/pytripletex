@@ -99,14 +99,14 @@ class TestReading:
             seen.append(request.url)
             return httpx.Response(200, json={"values": [], "fullResultSize": 0})
 
-        await tc.list_taxcards(_client(handler), 2026, include_quit=True, query="ale")
+        await tc.list_taxcards(_client(handler), 2026, former_employees=True, query="ale")
 
         assert seen[0].params["year"] == "2026"
         assert seen[0].params["hasQuit"] == "true"
         assert seen[0].params["query"] == "ale"
         assert "taxcardYear" not in seen[0].params
 
-    async def test_include_quit_defaults_off(self):
+    async def test_current_employees_by_default(self):
         seen: list[httpx.URL] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -275,3 +275,70 @@ class TestOrdering:
             return httpx.Response(200, json={"value": "-1"})
 
         assert await tc.fetch_taxcards_from_altinn(_client(handler)) == "-1"
+
+
+class TestHasQuitSelectsRatherThanWidens:
+    """`hasQuit` picks one population, it does not widen the other.
+
+    Measured 2026: Handel returns 30 for false and 46 for true with **one**
+    person in both; Services 15 and 13 with four. Nearly disjoint. The overlap
+    is people holding an ended employment and a current one, which happens
+    whenever someone's unit changes.
+
+    Reading it as "include leavers" produced a confident wrong answer about who
+    was affected — every outstanding 2026 issue belongs to someone who has left,
+    while current staff are clean, and the two got mixed. The UI itself issues
+    both queries after a fetch, which is the tell.
+    """
+
+    def _split(self, current, former):
+        def handler(request: httpx.Request) -> httpx.Response:
+            rows = former if request.url.params.get("hasQuit") == "true" else current
+            return httpx.Response(
+                200, json={"values": rows, "count": len(rows), "fullResultSize": 0}
+            )
+
+        return handler
+
+    async def test_current_and_former_are_separate_populations(self):
+        client = self._split(
+            [_employee(1, "Still here", OK_CARD)],
+            [_employee(2, "Left", NO_CARD_STATUS)],
+        )
+        current = await tc.list_taxcards(_client(client), 2026)
+        former = await tc.list_taxcards(_client(client), 2026, former_employees=True)
+
+        assert [e.display_name for e in current] == ["Still here"]
+        assert [e.display_name for e in former] == ["Left"]
+
+    async def test_all_taxcards_merges_both_queries(self):
+        got = await tc.all_taxcards(
+            _client(self._split(
+                [_employee(1, "Still here", OK_CARD)],
+                [_employee(2, "Left", NO_CARD_STATUS)],
+            )),
+            2026,
+        )
+
+        assert sorted(e.display_name for e in got) == ["Left", "Still here"]
+
+    async def test_someone_in_both_sets_appears_once(self):
+        both = _employee(1, "Changed unit", OK_CARD)
+        got = await tc.all_taxcards(_client(self._split([both], [both])), 2026)
+
+        assert len(got) == 1
+
+    async def test_issues_default_to_current_staff(self):
+        """Every 2026 issue belongs to a leaver, so a check that mixed the
+        populations would alarm about people nobody is paying."""
+        client = self._split(
+            [_employee(1, "Still here", OK_CARD)],
+            [_employee(2, "Left", NO_CARD_STATUS)],
+        )
+        assert await tc.taxcard_issues(_client(client), 2026) == []
+        assert len(await tc.taxcard_issues(_client(client), 2026, scope="all")) == 1
+        assert len(await tc.taxcard_issues(_client(client), 2026, scope="former")) == 1
+
+    async def test_unknown_scope_is_refused(self):
+        with pytest.raises(ValueError, match="scope must be"):
+            await tc.taxcard_issues(_client(self._split([], [])), 2026, scope="everyone")
