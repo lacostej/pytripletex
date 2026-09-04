@@ -303,6 +303,135 @@ class HolidaySettings(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# --- Salary drafts (the salaryv2 surface) ---
+
+
+class SalarySpec(BaseModel):
+    """One line on a draft payslip.
+
+    `specification_type` separates what you supplied from what Tripletex worked
+    out: `TYPE_MANUAL` is an imported or hand-entered line, `TYPE_TAX` is the
+    withholding Tripletex calculated. The tax line's `count_and_rate_editable`
+    is false — it is a result, not an input.
+    """
+
+    id: Optional[int] = None
+    specification_type: Optional[str] = Field(default=None, alias="specificationType")
+    salary_type: Optional[dict] = Field(default=None, alias="salaryType")
+    rate: Optional[Decimal] = None
+    count: Optional[Decimal] = None
+    amount: Optional[Decimal] = None
+    description: Optional[str] = None
+    project: Optional[dict] = None
+    department: Optional[dict] = None
+    count_and_rate_editable: bool = Field(default=False, alias="countAndRateEditable")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def is_tax(self) -> bool:
+        return self.specification_type == "TYPE_TAX"
+
+
+class SalaryPaymentDraft(BaseModel):
+    """One employee's draft payslip inside a salary draft."""
+
+    id: int
+    employee: Optional[dict] = None
+    gross_amount: Optional[Decimal] = Field(default=None, alias="grossAmount")
+    amount: Optional[Decimal] = None
+    specifications: list[SalarySpec] = Field(default_factory=list)
+    #: Tripletex's own pre-flight check. `poisonPills` block the run; warnings
+    #: do not. Read it before committing rather than after.
+    validation_results: Optional[dict] = Field(default=None, alias="validationResults")
+    is_tax_card_missing: bool = Field(default=False, alias="isTaxCardMissing")
+    payroll_tax_percentage: Optional[Decimal] = Field(
+        default=None, alias="payrollTaxPercentage"
+    )
+    travel_expenses: list[dict] = Field(default_factory=list, alias="travelExpenses")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def blocking_problems(self) -> list:
+        return list((self.validation_results or {}).get("poisonPills") or [])
+
+    @property
+    def warnings(self) -> list:
+        return list((self.validation_results or {}).get("warnings") or [])
+
+
+class SalaryDraft(BaseModel):
+    """A salary run before it is committed — Tripletex's *lønnsbilag* draft.
+
+    This is the object the documented `/v2/salary/transaction` API has no
+    concept of. There, a POST books a voucher immediately. Here the run exists
+    as an editable draft until `:run` is called, and only then does a voucher
+    appear.
+
+    The two states, from one measured import:
+
+        completed=False  voucher=None  displayName="Salary payment (under process)"
+        completed=True   voucher={id}  displayName="Salary voucher 14-2026"
+
+    Which is why corrections are cheap before the run and expensive after: an
+    edit to a draft touches one payslip, while a correction to a committed run
+    means reversing and reissuing for everybody.
+    """
+
+    id: int
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+    date: Optional[datetime.date] = None
+    year: Optional[int] = None
+    month: Optional[int] = None
+    period: Optional[str] = Field(default=None, alias="periodAsString")
+    completed: bool = False
+    voucher: Optional[dict] = None
+    payment_date: Optional[datetime.date] = Field(default=None, alias="paymentDate")
+    payslips_available_date: Optional[datetime.date] = Field(
+        default=None, alias="paySlipsAvailableDate"
+    )
+    sum_paid: Optional[Decimal] = Field(default=None, alias="sumPaidAmount")
+    sum_tax_deduction: Optional[Decimal] = Field(
+        default=None, alias="sumTaxDeductionAmount"
+    )
+    is_historical: bool = Field(default=False, alias="isHistorical")
+    voucher_comment: Optional[str] = Field(default=None, alias="voucherComment")
+    salary_payments: list[SalaryPaymentDraft] = Field(
+        default_factory=list, alias="salaryPayments"
+    )
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def is_committed(self) -> bool:
+        """True once `:run` has booked a voucher. Read this, not `voucher`
+        alone — a draft carries `voucher: null` rather than omitting it."""
+        return self.completed or bool((self.voucher or {}).get("id"))
+
+    @property
+    def employees_without_tax_card(self) -> list[SalaryPaymentDraft]:
+        """Payslips Tripletex flagged as having no tax card, which means 50%
+        withholding. Worth resolving before the run, not after."""
+        return [p for p in self.salary_payments if p.is_tax_card_missing]
+
+    @property
+    def blocking_problems(self) -> list:
+        return [p for p in self.salary_payments if p.blocking_problems]
+
+
+class ImportedFile(BaseModel):
+    """A file staged by the upload endpoint, ready to be referenced by an import."""
+
+    id: str
+    revision: str = "1"
+    name: Optional[str] = None
+    checksum: Optional[str] = None
+    size: Optional[str] = None
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+
 # --- Tax cards (skattekort) ---
 
 

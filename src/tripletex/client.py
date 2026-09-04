@@ -247,14 +247,28 @@ class TripletexClient:
         params: dict[str, Any] | None = None,
         json_body: Any = None,
         for_json: bool = True,
+        files: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        content: str | bytes | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        """Make an authenticated request."""
+        """Make an authenticated request.
+
+        `files`/`data` send multipart, and `content` sends a raw body — both
+        needed by the legacy endpoints behind the salary import, which predate
+        `/v2` and take a file upload and a JSON-RPC form post respectively.
+        Neither sets a Content-Type: httpx derives the multipart boundary
+        itself, and a caller sending raw content states its own type through
+        `extra_headers`.
+        """
         url = httpx.URL(path) if path.startswith("http") else self.http.base_url.join(path)
         headers = self.session.request_headers(str(url), for_json=for_json)
         if method in ("POST", "PUT") and for_json:
             headers["Content-Type"] = "application/json"
-            if isinstance(self.session, WebSession):
-                headers["Origin"] = self.config.base_url
+        if method in ("POST", "PUT") and isinstance(self.session, WebSession):
+            headers["Origin"] = self.config.base_url
+        if extra_headers:
+            headers.update(extra_headers)
 
         kwargs: dict[str, Any] = {
             "headers": headers,
@@ -267,6 +281,12 @@ class TripletexClient:
             kwargs["params"] = params
         if json_body is not None:
             kwargs["json"] = json_body
+        if files is not None:
+            kwargs["files"] = files
+        if data is not None:
+            kwargs["data"] = data
+        if content is not None:
+            kwargs["content"] = content
 
         # Paced against the token's quota, and retried on 429/5xx. `send` does
         # not raise for status, so the 401 branch below still owns that call.
