@@ -960,8 +960,30 @@ class Order(BaseModel):
     receiver_email: Optional[str] = Field(default=None, alias="receiverEmail")
     order_lines: Optional[list[OrderLine]] = Field(default=None, alias="orderLines")
     is_closed: bool = Field(default=False, alias="isClosed")
+    is_subscription: bool = Field(default=False, alias="isSubscription")
+    #: The draft invoice, while one exists. Cleared once the order is invoiced,
+    #: so a closed order carries `None` here rather than a booked invoice —
+    #: which is why `is_closed` is what says whether invoicing happened.
+    preliminary_invoice: Optional[dict] = Field(
+        default=None, alias="preliminaryInvoice"
+    )
 
     model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def customer_single_invoice(self) -> Optional[bool]:
+        """`customer.singleCustomerInvoice`, if the customer was expanded.
+
+        Tripletex describes it as "enables various orders on one customer
+        invoice" — an aggregation setting. Whether that also implies *when* an
+        order should be invoiced is a caller's policy, not something the field
+        states, so nothing here derives a deadline from it. `None` means the
+        customer was not expanded with the field, which is distinct from it
+        being off.
+        """
+        if not self.customer or "singleCustomerInvoice" not in self.customer:
+            return None
+        return bool(self.customer["singleCustomerInvoice"])
 
     @property
     def customer_name(self) -> str:
