@@ -303,6 +303,93 @@ class HolidaySettings(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# --- Payslips (what was actually paid) ---
+
+
+class PayslipSpec(BaseModel):
+    """One line on a committed payslip.
+
+    `salary_type.number` is the wage type — 2001 timelønn, 2030 tips, and so on
+    — which is what payroll reconciliation keys on. It is nested rather than
+    flat, so read it through `wage_type`.
+    """
+
+    id: Optional[int] = None
+    salary_type: Optional[dict] = Field(default=None, alias="salaryType")
+    rate: Optional[Decimal] = None
+    count: Optional[Decimal] = None
+    amount: Optional[Decimal] = None
+    description: Optional[str] = None
+    project: Optional[dict] = None
+    department: Optional[dict] = None
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def wage_type(self) -> Optional[int]:
+        """The wage type number, or None if the field was not requested."""
+        raw = (self.salary_type or {}).get("number")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def department_id(self) -> Optional[int]:
+        raw = (self.department or {}).get("id")
+        return raw if isinstance(raw, int) else None
+
+
+class Payslip(BaseModel):
+    """One employee's payslip for one month, as paid.
+
+    The counterpart to `SalaryPaymentDraft`: that is a run before it is
+    committed, this is one that happened. Unlike an import CSV it includes
+    everything added inside Tripletex after the import — expenses, holiday
+    money, hand-entered corrections — which is what makes it the authority on
+    what an employee was actually paid.
+    """
+
+    id: Optional[int] = None
+    year: Optional[int] = None
+    month: Optional[int] = None
+    #: Payment date, not the period — a 2026-08 payslip is dated 2026-09-04.
+    date: Optional[datetime.date] = None
+    employee: Optional[dict] = None
+    #: The salary run this belongs to. Named `transaction` by the API.
+    transaction: Optional[dict] = None
+    department: Optional[dict] = None
+    #: Net pay. The API calls it `amount`; there is no `netAmount`.
+    amount: Optional[Decimal] = None
+    gross_amount: Optional[Decimal] = Field(default=None, alias="grossAmount")
+    vacation_allowance_amount: Optional[Decimal] = Field(
+        default=None, alias="vacationAllowanceAmount"
+    )
+    specifications: list[PayslipSpec] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def employee_number(self) -> Optional[int]:
+        """Tripletex `employeeNumber` — the same identifier Tamigo calls WageNumber."""
+        raw = (self.employee or {}).get("employeeNumber")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def period(self) -> str:
+        return f"{self.year}-{self.month:02d}" if self.year and self.month else "?"
+
+    def total_for(self, wage_type: int) -> Decimal:
+        """Sum of every line carrying `wage_type`, zero if none do."""
+        return sum(
+            (s.amount or Decimal(0)) for s in self.specifications
+            if s.wage_type == wage_type
+        ) or Decimal(0)
+
+
 # --- Salary drafts (the salaryv2 surface) ---
 
 
