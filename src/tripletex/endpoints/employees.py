@@ -176,7 +176,7 @@ async def list_employments(
 
     **The per-employee loop is not an optimisation choice — it is required.**
     Called without `employeeId` the endpoint answers 200 with a *single* row
-    rather than all of them: 1 instead of 81 on Bonita Handel, no error and no
+    rather than all of them: 1 instead of 81 on the larger company, no error and no
     warning. It is the silent-filtering shape described in `api-gaps.md` §2, and
     a caller that trusts the unfiltered list gets a plausible, tiny, wrong
     answer. So the employee list is fetched first and each id asked for

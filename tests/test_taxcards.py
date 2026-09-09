@@ -1,7 +1,9 @@
 """Tax cards: reading them, and the guard rails on ordering them.
 
 Payloads captured from the Tripletex UI 2026-09-04 and verified against the
-live API the same day.
+live API the same day. Employee names and identifiers are placeholders — a tax
+card status says something personal about a named individual, and this repo is
+public.
 
 The write tests matter more than the read ones. `prepare_taxcards` places a real,
 irreversible bulk order against Altinn, so what is pinned here is that it cannot
@@ -29,7 +31,7 @@ OK_CARD = {
     # Tripletex really does describe a healthy card this way.
     "statusDescription": "det har oppstått en ukjent feil.",
     "additionalInfo": "", "yearOfIncome": 2026, "utstedtDato": "2026-05-02",
-    "orderId": 2143576, "arbeidstakerIdentifikator": "01019012345",
+    "orderId": 2143576, "arbeidstakerIdentifikator": "<redacted>",
     "advanceTaxcards": [
         {"trekkode": "loennFraHovedarbeidsgiver",
          "trekkodeDescription": "Lønn fra hovedarbeidsgiver",
@@ -81,7 +83,7 @@ def _employee(number, name, card):
 class TestReading:
     async def test_parses_a_card_and_its_deduction_rule(self):
         (e,) = await tc.list_taxcards(
-            _client(_rows(_employee(139, "Alexander Kalseth", OK_CARD))), 2026
+            _client(_rows(_employee(139, "Employee A", OK_CARD))), 2026
         )
 
         assert e.has_card and e.taxcard.is_ok
@@ -152,7 +154,7 @@ class TestIssueDetection:
 
     async def test_no_taxcard_status_is_an_issue(self):
         issues = await tc.taxcard_issues(
-            _client(_rows(_employee(83, "Cecilia", NO_CARD_STATUS))), 2026
+            _client(_rows(_employee(83, "Employee B", NO_CARD_STATUS))), 2026
         )
 
         assert issues[0].issue == "ikkeSkattekort"
@@ -161,7 +163,7 @@ class TestIssueDetection:
         """The personal-number-changed case: a card under the employee's
         fødselsnummer is waiting to be fetched."""
         issues = await tc.taxcard_issues(
-            _client(_rows(_employee(72, "Lorena", EXPIRED_DNUMBER))), 2026
+            _client(_rows(_employee(72, "Employee C", EXPIRED_DNUMBER))), 2026
         )
 
         assert issues[0].issue.startswith("utgaattDnummer")
@@ -170,7 +172,7 @@ class TestIssueDetection:
         """`additionalInfo` is set while the status stays OK — payroll needs to
         know, but nothing is broken."""
         (e,) = await tc.list_taxcards(
-            _client(_rows(_employee(149, "Cornelia", KILDESKATT))), 2026
+            _client(_rows(_employee(149, "Employee D", KILDESKATT))), 2026
         )
 
         assert e.issue is None

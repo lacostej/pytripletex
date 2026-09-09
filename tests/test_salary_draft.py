@@ -1,7 +1,7 @@
 """Salary drafts: the lifecycle, and what must be true before committing one.
 
 Payloads captured from the Tripletex UI 2026-09-04, importing a real August run
-for Bonita Services (transaction 7562010, nine payslips, 110 602.81 NOK).
+for the smaller company (transaction 7562010, nine payslips, 110 602.81 NOK).
 
 The point of this module is that `/v2/tsk/salaryv2/*` has a draft and
 `/v2/salary/transaction` does not. These tests pin the distinction, because

@@ -52,7 +52,7 @@ async def list_accounts(
 ) -> list[Account]:
     """The chart of accounts.
 
-    GET /v2/ledger/account. 603 rows on Bonita Handel, so it pages once and is
+    GET /v2/ledger/account. 603 rows on the larger company, so it pages once and is
     worth caching for the length of a run — every posting check joins against it.
     """
     params = {"fields": _ACCOUNT_FIELDS}
@@ -132,7 +132,7 @@ async def list_close_groups(
     settled, but never the date it happened.
 
     So this is what any payment-latency measure has to be built on. Measured on
-    Bonita Handel Jan–Aug 2026: 1228 groups, of which 841 touch supplier debt
+    the larger company Jan–Aug 2026: 1228 groups, of which 841 touch supplier debt
     (2400) and 33 customer receivables (1500). The rest are accruals and other
     matched balance-sheet items, so callers must filter by account rather than
     assuming every group is a payment.

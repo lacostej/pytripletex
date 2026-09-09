@@ -199,7 +199,7 @@ class Reminder(BaseModel):
 
     `type` matters more than it looks. `SOFT_REMINDER` is a courtesy nudge and
     is not supposed to carry a fee; `REMINDER` is the formal purring that may.
-    Measured on Bonita Services 2024-2026: 32 soft against 7 formal, and only 4
+    Measured on the smaller company 2024-2026: 32 soft against 7 formal, and only 4
     of the 39 carried any charge or interest at all. Counting them together
     makes a company look as though it never charges when mostly it never
     escalated.
@@ -241,7 +241,7 @@ class SalaryRow(BaseModel):
 
     An employment carries a list of these, which together are the wage history:
     each row states what the terms became on `date` and holds until the next.
-    Bonita Handel has 180 of them across 81 employments, reaching back to 2015.
+    the larger company has 180 of them across 81 employments, reaching back to 2015.
     """
 
     id: Optional[int] = None
@@ -558,7 +558,7 @@ class Taxcard(BaseModel):
     description is accurate for the failure statuses but wrong for the healthy
     one: `skattekortopplysningerOK` is described as *"det har oppstått en ukjent
     feil"* — "an unknown error occurred" — on every good card, across 2024-2026
-    on Bonita Handel (35, 40 and 42 cards). It reads like a missing enum entry
+    on the larger company (35, 40 and 42 cards). It reads like a missing enum entry
     falling through to a generic error string.
 
     Confirmed not to be a request-side mistake, which was the obvious
