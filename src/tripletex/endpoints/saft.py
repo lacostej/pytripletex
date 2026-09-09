@@ -29,10 +29,14 @@ with voucher volume. Hence streaming to disk and a generous timeout.
 
 from __future__ import annotations
 
+import json
 import logging
 import zipfile
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -133,3 +137,116 @@ def _first_version(root) -> str | None:
         if element.tag.rsplit("}", 1)[-1] == "AuditFileVersion":
             return (element.text or "").strip() or None
     return None
+
+
+# --- The web export, which the token API cannot reach -----------------------
+
+#: Versions the web export offers. The API emits 1.2 only — reported in the file
+#: header as "1.20" — and takes no version argument, so 1.3 is web-session only.
+SAFT_VERSIONS = ("1.2", "1.3")
+
+
+async def saft_range_is_legal(
+    client: TripletexClient, date_from: date, date_to: date
+) -> bool:
+    """Whether Tripletex will accept this range for an export.
+
+    POST /JSON-RPC AnnualAccounts.isNotLegalStartAndEndDateForSaftExport, which
+    the UI calls before every download. The known rule is that a range may not
+    span calendar years — the UI's failure message is
+    `validation_saft_export_multiple_years_not_allowed` — but asking the server
+    beats encoding a rule we only half know.
+
+    Note the endpoint's own name is inverted: it answers *true* when the range is
+    **not** legal. This function returns the sane direction.
+    """
+    session = require_web_session(client.session, "SAF-T export")
+    body = {
+        "method": "AnnualAccounts.isNotLegalStartAndEndDateForSaftExport",
+        "params": [date_from.isoformat(), date_to.isoformat()],
+        # The JSON-RPC correlation id. Client-chosen and only needs to be unique
+        # within a batch — nothing looks it up, and the browser simply counts.
+        "id": 1,
+    }
+    response = await client._request(
+        "POST",
+        "/JSON-RPC",
+        params={
+            "method": "AnnualAccounts.isNotLegalStartAndEndDateForSaftExport",
+            "contextId": session.context_id,
+        },
+        content=json.dumps(body),
+        extra_headers={"Content-type": "text/plain"},
+        for_json=False,
+    )
+    return not bool((response.json() or {}).get("result"))
+
+
+async def export_saft_web(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+    dest: Path | str,
+    version: str = "1.3",
+    send_to_inbox_archive: bool = False,
+    split: bool = False,
+    validate_range: bool = True,
+) -> Path | None:
+    """Export SAF-T over a date range, at a chosen version. Web session only.
+
+    GET /execute/saftExport?act=downloadSAFTZipfile — the same call the UI makes,
+    read off `/saftExport.js`. It offers three things the documented API does not:
+
+    - **an arbitrary date range** rather than a whole year;
+    - **version 1.3**, which the token endpoint cannot produce at all;
+    - delivery into bilagsmottak, and splitting for very large exports.
+
+    `send_to_inbox_archive` changes what this returns: the file is delivered to
+    the document inbox rather than to the caller, so nothing is written locally
+    and the result is `None`.
+
+    `split` asks Tripletex to break the export into one file per month if it
+    exceeds 2 GB, so the archive may then hold several XML members — which is
+    why `export_saft`'s extraction refuses anything but a single one.
+
+    **The range may not span calendar years.** `validate_range` asks the server
+    first, which is one extra request and the same check the UI performs; turn it
+    off only if you have already validated.
+
+    A chart of accounts carrying SAF-T codes a version rejects produces a
+    *warning* in the UI, not a refusal — both version flags read valid with two
+    such accounts present — so this does not attempt to pre-empt that.
+    """
+    session = require_web_session(client.session, "SAF-T export")
+    if version not in SAFT_VERSIONS:
+        raise ValueError(f"version must be one of {SAFT_VERSIONS}, not {version!r}")
+
+    if validate_range and not await saft_range_is_legal(client, date_from, date_to):
+        raise ValueError(
+            f"Tripletex rejects {date_from}..{date_to} for SAF-T export — a range "
+            "may not span calendar years"
+        )
+
+    params = {
+        "act": "downloadSAFTZipfile",
+        "from": date_from.isoformat(),
+        "to": date_to.isoformat(),
+        "sendToInboxArchive": "true" if send_to_inbox_archive else "false",
+        "split": "true" if split else "false",
+        "version": version,
+        "contextId": session.context_id,
+    }
+
+    if send_to_inbox_archive:
+        logger.info("Exporting SAF-T %s to the document inbox", version)
+        await client._request("GET", "/execute/saftExport", params=params, for_json=False)
+        return None
+
+    dest = Path(dest)
+    if dest.is_dir() or not dest.suffix:
+        dest.mkdir(parents=True, exist_ok=True)
+        dest = dest / f"saft-{date_from}-{date_to}-v{version}.zip"
+
+    logger.info("Exporting SAF-T %s for %s..%s", version, date_from, date_to)
+    await client.download("/execute/saftExport", params, dest)
+    return dest
