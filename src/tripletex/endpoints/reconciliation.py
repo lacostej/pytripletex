@@ -128,7 +128,7 @@ async def list_reconciliations(
     GET /v2/bank/reconciliation. `accountingPeriod.start` is the month being
     reconciled and `closedDate` is when the work was actually finished, so the
     gap between them is the reconciliation lag — how long after a month ends its
-    bank accounts get squared away. Measured on Bonita Handel, the January 2022
+    bank accounts get squared away. Measured on one company, the January 2022
     reconciliation closed on 2022-04-09.
 
     That gap is the only reconciliation timing the API exposes. Individual
@@ -190,7 +190,7 @@ def detail_text(detail: object) -> str | None:
     `{"Detaljer": "DIGITALOCEAN.COM, …"}` on a Norwegian-language company and
     `{"Details": "GOOGLE*WORKSPACE …"}` on an English one — the JSON key follows
     the account language, not just the values. Matching on a fixed name silently
-    dropped every line from the English company: card rows on Bonita Services
+    dropped every line from the English company: card rows on the smaller company
     carry a merchant 12 times out of 12, and we were reading none of them.
 
     The payload is a single-entry object, so take the first non-empty string

@@ -27,14 +27,14 @@ from tripletex.session import ApiSession
 
 BASE_URL = "https://tripletex.no"
 
-# Bonita Handel, voucher 869, July 2026 — a supplier invoice with a receipt.
+# A supplier invoice from one company, voucher 869, July 2026 — a supplier invoice with a receipt.
 VOUCHER_WITH_RECEIPT = {
     "id": 637636527,
     "number": 869,
     "tempNumber": 16500,
     "year": 2026,
     "date": "2026-07-01",
-    "description": "Faktura nummer 10211 fra KAMMER EIENDOM AS",
+    "description": "Faktura nummer 10211 fra LANDLORD AS",
     "voucherType": {"id": 3015037, "name": "Leverandørfaktura"},
     "attachment": {
         "id": 1085979613,
@@ -46,9 +46,9 @@ VOUCHER_WITH_RECEIPT = {
         {
             "id": 4006687016,
             "date": "2026-07-01",
-            "description": "Faktura nummer 10211 fra KAMMER EIENDOM AS",
+            "description": "Faktura nummer 10211 fra LANDLORD AS",
             "account": {"number": 6300, "name": "Leie lokale", "type": "OPERATING_EXPENSES"},
-            "supplier": {"id": 36953507, "name": "KAMMER EIENDOM AS"},
+            "supplier": {"id": 36953507, "name": "LANDLORD AS"},
             "customer": None,
             "employee": None,
             "vatType": {"id": 1, "name": "Fradrag inngående avgift, høy sats", "percentage": 25},
@@ -61,7 +61,7 @@ VOUCHER_WITH_RECEIPT = {
             "id": 4006687017,
             "date": "2026-07-01",
             "account": {"number": 2400, "name": "Leverandørgjeld", "type": "LIABILITIES"},
-            "supplier": {"id": 36953507, "name": "KAMMER EIENDOM AS"},
+            "supplier": {"id": 36953507, "name": "LANDLORD AS"},
             "vatType": {"id": 0, "name": "Ingen avgiftsbehandling", "percentage": 0},
             "amount": -36740.0,
             "amountCurrency": -36740.0,
@@ -149,7 +149,7 @@ class TestVouchersWithPostings:
         assert expense.vat_type.id == 1
         assert expense.vat_type.percentage == Decimal("25")
         assert expense.amount == Decimal("29392")
-        assert expense.supplier["name"] == "KAMMER EIENDOM AS"
+        assert expense.supplier["name"] == "LANDLORD AS"
 
         assert payable.account.number == 2400
         assert payable.vat_type.id == 0
@@ -254,7 +254,7 @@ class TestPostings:
         "date": "2026-07-01",
         "description": "Oppvaskmaskin. Periodisering",
         "account": {"number": 6015, "name": "Avskrivning på maskiner og inventar"},
-        "supplier": {"name": "Turnor Store AS"},
+        "supplier": {"name": "SUPPLIER AS"},
         "vatType": {"id": 0, "name": "Ingen avgiftsbehandling", "percentage": 0},
         "amount": 1103.89,
     }

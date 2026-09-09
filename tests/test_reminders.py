@@ -22,7 +22,7 @@ from tripletex.session import ApiSession, WebSession, WebSessionRequired
 
 BASE_URL = "https://tripletex.no"
 
-# Bonita Services, a formal purring carrying a fee and interest.
+# A formal purring carrying a fee and interest.
 REMINDER = {
     "id": 10026086,
     "invoiceId": 1857768223,

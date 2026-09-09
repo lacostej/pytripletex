@@ -6,7 +6,7 @@ out of Norwegian formatting, and a blank "new salary" template row skipped.
 salary, remuneration type, occupation code and the division's organisation
 number, none of which the HTML exposed.
 
-The rows below are real, from Bonita Handel 2026-09-03.
+The rows below are real, from the larger company 2026-09-03.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ EMPLOYMENT = {
     "employee": {"id": 4888742, "firstName": "Ola", "employeeNumber": "12"},
     "division": {
         "id": 37714290,
-        "name": "BONITA CAFE BRISKEBY",
-        "organizationNumber": "914415047",
+        "name": "UNIT ONE",
+        "organizationNumber": "000000000",
     },
     "employmentDetails": [
         {"id": 1, "date": "2021-01-01", "annualSalary": 390000.0, "hourlyWage": 200.0,
@@ -124,8 +124,8 @@ class TestSalaryHistory:
         """The scrape pulled it out of a display name with `\\((\\d{6,})\\)`."""
         (e,) = await list_employments(_client(_by_employee({4888742: [EMPLOYMENT]})))
 
-        assert e.division_organization_number == "914415047"
-        assert e.division_name == "BONITA CAFE BRISKEBY"
+        assert e.division_organization_number == "000000000"
+        assert e.division_name == "UNIT ONE"
 
 
 class TestThePerEmployeeQuirk:

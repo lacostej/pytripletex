@@ -94,10 +94,10 @@ class TestOpenOrders:
 
     async def test_parses_the_queue(self):
         orders = await list_open_orders(
-            _client(_rows(_order(1, "2026-08-05", "Strak Strak AS", True, 1156.0)))
+            _client(_rows(_order(1, "2026-08-05", "Customer A", True, 1156.0)))
         )
 
-        assert orders[0].customer_name == "Strak Strak AS"
+        assert orders[0].customer_name == "Customer A"
         assert orders[0].amount_including_vat == Decimal("1156")
         assert orders[0].preliminary_invoice["invoiceNumber"] == 0
 
