@@ -20,7 +20,11 @@ import pytest
 
 from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
-from tripletex.endpoints.saft import audit_file_version, export_saft
+from tripletex.endpoints.saft import (
+    audit_file_version,
+    export_saft,
+    export_saft_web,
+)
 from tripletex.session import ApiSession
 
 BASE_URL = "https://tripletex.no"
@@ -161,3 +165,121 @@ class TestAuditFileVersion:
         archive.write_bytes(_zip_bytes(("readme.txt", "x")))
 
         assert audit_file_version(archive) is None
+
+
+class TestWebExport:
+    """The web route, read off `/saftExport.js`.
+
+    It reaches what the token API cannot: an arbitrary date range, and version
+    1.3. The API emits 1.2 only and takes no version argument.
+    """
+
+    def _web(self, handler) -> TripletexClient:
+        from tripletex.session import WebSession
+
+        client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        client._session = WebSession(cookies=httpx.Cookies(), context_id="11111111")
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE_URL
+        )
+        return client
+
+    def _capture(self, seen, legal=True):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/JSON-RPC":
+                # The endpoint answers true when the range is NOT legal.
+                return httpx.Response(200, json={"result": not legal, "id": 1})
+            seen.append(request.url)
+            return httpx.Response(200, content=ARCHIVE)
+
+        return handler
+
+    async def test_sends_the_parameters_the_ui_sends(self, tmp_path):
+        import datetime
+
+        seen: list[httpx.URL] = []
+        await export_saft_web(
+            self._web(self._capture(seen)),
+            datetime.date(2026, 1, 1), datetime.date(2026, 6, 30),
+            tmp_path / "s.zip", version="1.3",
+        )
+
+        assert seen[0].path == "/execute/saftExport"
+        assert seen[0].params["act"] == "downloadSAFTZipfile"
+        assert seen[0].params["from"] == "2026-01-01"
+        assert seen[0].params["to"] == "2026-06-30"
+        assert seen[0].params["version"] == "1.3"
+        assert seen[0].params["split"] == "false"
+        assert seen[0].params["contextId"] == "11111111"
+
+    async def test_version_13_is_the_default(self, tmp_path):
+        """The API cannot produce it at all, so it must not be an opt-in here."""
+        import datetime
+
+        seen: list[httpx.URL] = []
+        await export_saft_web(
+            self._web(self._capture(seen)),
+            datetime.date(2026, 1, 1), datetime.date(2026, 12, 31), tmp_path,
+        )
+
+        assert seen[0].params["version"] == "1.3"
+
+    async def test_an_unknown_version_is_refused_before_any_request(self, tmp_path):
+        import datetime
+
+        seen: list[httpx.URL] = []
+        with pytest.raises(ValueError, match="version must be"):
+            await export_saft_web(
+                self._web(self._capture(seen)),
+                datetime.date(2026, 1, 1), datetime.date(2026, 12, 31),
+                tmp_path, version="1.4",
+            )
+        assert seen == []
+
+    async def test_a_multi_year_range_is_refused(self, tmp_path):
+        """`validation_saft_export_multiple_years_not_allowed` — asked of the
+        server rather than reimplemented, since we only half know the rule."""
+        import datetime
+
+        seen: list[httpx.URL] = []
+        with pytest.raises(ValueError, match="may not span calendar years"):
+            await export_saft_web(
+                self._web(self._capture(seen, legal=False)),
+                datetime.date(2025, 1, 1), datetime.date(2026, 12, 31), tmp_path,
+            )
+        assert seen == []
+
+    async def test_inbox_delivery_writes_nothing_locally(self, tmp_path):
+        """The file goes to bilagsmottak, so there is no download to return."""
+        import datetime
+
+        seen: list[httpx.URL] = []
+        out = await export_saft_web(
+            self._web(self._capture(seen)),
+            datetime.date(2026, 1, 1), datetime.date(2026, 3, 31), tmp_path,
+            send_to_inbox_archive=True,
+        )
+
+        assert out is None
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_directory_destination_names_by_range_and_version(self, tmp_path):
+        import datetime
+
+        out = await export_saft_web(
+            self._web(self._capture([])),
+            datetime.date(2026, 1, 1), datetime.date(2026, 6, 30),
+            tmp_path, version="1.2",
+        )
+
+        assert out.name == "saft-2026-01-01-2026-06-30-v1.2.zip"
+
+    async def test_needs_a_web_session(self, tmp_path):
+        import datetime
+        from tripletex.session import WebSessionRequired
+
+        with pytest.raises(WebSessionRequired):
+            await export_saft_web(
+                _client(), datetime.date(2026, 1, 1), datetime.date(2026, 3, 31),
+                tmp_path,
+            )
