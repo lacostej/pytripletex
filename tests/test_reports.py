@@ -21,11 +21,15 @@ import pytest
 from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
 from tripletex.endpoints.reports import (
+    ReportUnavailable,
+    export_fixed_asset_register,
+    export_income_statement,
     export_ledger_report,
+    export_trial_balance,
     ledger_posting_count,
     ledger_report_filename,
 )
-from tripletex.session import ApiSession
+from tripletex.session import ApiSession, WebSession, WebSessionRequired
 
 BASE_URL = "https://tripletex.no"
 
@@ -47,6 +51,15 @@ def _client(handler) -> TripletexClient:
     return client
 
 
+#: Every route in this module that returns a document rather than JSON.
+REPORT_PATHS = (
+    "/v2/ledger/internal/general/",
+    "/v2/ledger/balanceSheet/",
+    "/v2/execute/listAssets/export/",
+    "/execute/resultReport2",
+)
+
+
 def _serving(body: bytes = b"%PDF-1.4 stub", seen: list | None = None):
     """Answer account lists as JSON and report routes as a binary document."""
 
@@ -55,7 +68,7 @@ def _serving(body: bytes = b"%PDF-1.4 stub", seen: list | None = None):
             seen.append(request.url)
         if request.url.path == "/v2/ledger/internal/general/postingCount":
             return httpx.Response(200, json={"value": 824})
-        if request.url.path.startswith("/v2/ledger/internal/general/"):
+        if any(request.url.path.startswith(p) for p in REPORT_PATHS):
             return httpx.Response(200, content=body)
         return httpx.Response(200, json={"values": ACCOUNTS, "fullResultSize": 3})
 
@@ -194,6 +207,240 @@ class TestExportLedgerReport:
         for switch in ("showVatNumber", "showVoucherNumber", "showPostingDate",
                        "viewRunningTotals", "viewAccountTotals"):
             assert report.params[switch] == "true"
+
+
+def _web_client(handler) -> TripletexClient:
+    client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+    client._session = WebSession(cookies=httpx.Cookies(), context_id="1")
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=BASE_URL
+    )
+    return client
+
+
+#: What /execute/resultReport2 serves for `xls=true` over a real session: an
+#: Excel-flavoured HTML table, `application/vnd.ms-excel`, named `.xls`. Also
+#: HTML — which is why the refusal below cannot be recognised by being HTML.
+EXCEL_HTML = (
+    b'<?mso-application progid="Excel.Sheet"?>'
+    b"<html><head><title>Resultatrapport</title></head>"
+    b"<body><table><tr><td>Salgsinntekt</td><td>1234</td></tr></table></body></html>"
+)
+
+#: What Tripletex actually serves a token on /execute/resultReport2 — status 200,
+#: content-type text/html, and no hint in either that this is a refusal.
+REFUSAL = (
+    b"<!DOCTYPE html><html><head><title>Feilsituasjon - Tripletex</title></head>"
+    b"<body><h1>Feilsituasjon</h1>Du har ikke tilgang til denne funksjonen.</body></html>"
+)
+
+
+class TestTrialBalance:
+    async def test_writes_a_named_file(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        got = await export_trial_balance(_client(_serving(seen=seen)), *H1, tmp_path)
+        (req,) = [u for u in seen if "balanceSheet" in u.path]
+
+        assert got.name == "saldobalanse_2026-01-01_2026-06-30.pdf"
+        assert req.path == "/v2/ledger/balanceSheet/pdf"
+        assert req.params["dateToExclusive"] == "2026-07-01"
+
+    async def test_is_not_under_internal(self, tmp_path: Path):
+        """The Hovedbok route is `/v2/ledger/internal/general`; this one is not
+        under `internal` at all, and guessing from the sibling 404s."""
+        seen: list[httpx.URL] = []
+        await export_trial_balance(_client(_serving(seen=seen)), *H1, tmp_path)
+
+        assert not any("internal" in u.path for u in seen)
+
+    async def test_includes_accounts_without_movement(self, tmp_path: Path):
+        """An account that moved to zero and one that never existed are
+        different findings; only the first shows when this is off."""
+        seen: list[httpx.URL] = []
+        await export_trial_balance(_client(_serving(seen=seen)), *H1, tmp_path)
+        (req,) = [u for u in seen if "balanceSheet" in u.path]
+
+        assert req.params["showAccountsWithoutTransactionsInPeriod"] == "true"
+
+    async def test_rerun_skips(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        client = _client(_serving(seen=seen))
+
+        await export_trial_balance(client, *H1, tmp_path)
+        await export_trial_balance(client, *H1, tmp_path)
+
+        assert len([u for u in seen if "balanceSheet" in u.path]) == 1
+
+
+class TestIncomeStatement:
+    async def test_api_token_is_refused_before_the_request(self, tmp_path: Path):
+        """A token gets 200 and an HTML error page, so failing up front is the
+        only way the caller learns what is actually wrong."""
+        seen: list[httpx.URL] = []
+
+        with pytest.raises(WebSessionRequired):
+            await export_income_statement(_client(_serving(seen=seen)), *H1, tmp_path)
+
+        assert seen == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_web_session_downloads(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        got = await export_income_statement(_web_client(_serving(seen=seen)), *H1, tmp_path)
+        (req,) = [u for u in seen if "resultReport2" in u.path]
+
+        assert got.name == "resultatrapport_2026-01-01_2026-06-30.pdf"
+        assert req.params["pdf"] == "true"
+
+    async def test_end_date_is_inclusive_on_this_route(self, tmp_path: Path):
+        """Unlike the /v2 report routes, this one takes the end date as-is.
+        Converting it here would drop a day off the far end."""
+        seen: list[httpx.URL] = []
+        await export_income_statement(_web_client(_serving(seen=seen)), *H1, tmp_path)
+        (req,) = [u for u in seen if "resultReport2" in u.path]
+
+        assert req.params["period.startDate"] == "2026-01-01"
+        assert req.params["period.endOfPeriodDate"] == "2026-06-30"
+        assert "dateToExclusive" not in req.params
+
+    async def test_format_is_chosen_by_presence_not_path(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        got = await export_income_statement(
+            _web_client(_serving(body=EXCEL_HTML, seen=seen)), *H1, tmp_path, fmt="xls",
+        )
+        (req,) = [u for u in seen if "resultReport2" in u.path]
+
+        assert req.params["xls"] == "true"
+        assert "pdf" not in req.params
+
+    async def test_spreadsheet_is_a_legacy_xls_not_an_xlsx(self, tmp_path: Path):
+        """This route serves Excel-flavoured HTML behind `<?mso-application?>`,
+        served as `application/vnd.ms-excel` and named `.xls`. It is a real
+        report, not a failure — measured at 149,934 bytes and 139 `<tr>` rows —
+        so naming it `.xlsx` would claim a zip container that is not there."""
+        got = await export_income_statement(
+            _web_client(_serving(body=EXCEL_HTML)), *H1, tmp_path, fmt="xls"
+        )
+
+        assert got.suffix == ".xls"
+        assert got.read_bytes().startswith(b"<?mso")
+
+    async def test_a_zip_is_not_accepted_from_this_route(self, tmp_path: Path):
+        """The guard stays specific per route: an `.xlsx` zip here would mean
+        Tripletex changed format, which the caller should hear about."""
+        with pytest.raises(ReportUnavailable):
+            await export_income_statement(
+                _web_client(_serving(body=b"PK\x03\x04stub")), *H1, tmp_path, fmt="xls"
+            )
+
+    async def test_no_filter_ids_are_sent_explicitly(self, tmp_path: Path):
+        """`-1` means "no filter" on this legacy form; omitting the parameter is
+        not the same thing."""
+        seen: list[httpx.URL] = []
+        await export_income_statement(_web_client(_serving(seen=seen)), *H1, tmp_path)
+        (req,) = [u for u in seen if "resultReport2" in u.path]
+
+        assert req.params["selectedCustomerId"] == "-1"
+        assert req.params["selectedProjectId"] == "-1"
+
+
+class TestFixedAssetRegister:
+    async def test_writes_a_year_named_file(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        got = await export_fixed_asset_register(_client(_serving(seen=seen)), 2025, tmp_path)
+        (req,) = [u for u in seen if "listAssets" in u.path]
+
+        assert got.name == "anleggsregister_2025.pdf"
+        assert req.params["year"] == "2025"
+
+    async def test_spreadsheet_route_says_xlsx_not_xls(self, tmp_path: Path):
+        """Every other report here spells it `xls`. This one does not, and the
+        `xls` spelling 404s."""
+        seen: list[httpx.URL] = []
+        await export_fixed_asset_register(
+            _client(_serving(body=b"PK\x03\x04stub", seen=seen)), 2025, tmp_path, fmt="xls"
+        )
+        (req,) = [u for u in seen if "listAssets" in u.path]
+
+        assert req.path == "/v2/execute/listAssets/export/xlsx"
+
+    async def test_prior_years_are_requested_unchanged(self, tmp_path: Path):
+        """The UI's picker offered only the current year, but the API serves
+        earlier ones with differing content. Nothing here should clamp."""
+        seen: list[httpx.URL] = []
+        client = _client(_serving(seen=seen))
+
+        for year in (2022, 2023, 2024, 2025):
+            await export_fixed_asset_register(client, year, tmp_path)
+
+        assert [u.params["year"] for u in seen if "listAssets" in u.path] == [
+            "2022", "2023", "2024", "2025",
+        ]
+        assert len(list(tmp_path.iterdir())) == 4
+
+
+class TestRefusalIsNotADocument:
+    """Tripletex answers 200 with an HTML page when access is denied. Writing
+    that into the pack under a `.pdf` name is the failure this guards."""
+
+    def _refusing(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=REFUSAL, headers={"content-type": "text/html"})
+
+    async def test_html_error_page_raises_instead_of_being_saved(self, tmp_path: Path):
+        with pytest.raises(ReportUnavailable, match="ikke tilgang"):
+            await export_income_statement(_web_client(self._refusing), *H1, tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_partial_file_is_removed(self, tmp_path: Path):
+        """A leftover file would be skipped by the next run as though it had
+        succeeded, making the failure permanent."""
+        with pytest.raises(ReportUnavailable):
+            await export_trial_balance(_client(self._refusing), *H1, tmp_path)
+
+        assert not (tmp_path / "saldobalanse_2026-01-01_2026-06-30.pdf").exists()
+
+    async def test_an_empty_body_is_not_a_report(self, tmp_path: Path):
+        """Measured on the live asset register: dropping `columns` returns 200
+        with a content-disposition and zero bytes — a download that looks
+        entirely successful and contains nothing."""
+
+        def empty(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, content=b"",
+                headers={"content-disposition": 'attachment; filename="x.xlsx"'},
+            )
+
+        with pytest.raises(ReportUnavailable):
+            await export_fixed_asset_register(_client(empty), 2026, tmp_path, fmt="xls")
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_columns_is_always_sent(self, tmp_path: Path):
+        """The parameter that decides between a real workbook and zero bytes."""
+        seen: list[httpx.URL] = []
+        await export_fixed_asset_register(
+            _client(_serving(body=b"PK\x03\x04stub", seen=seen)), 2026, tmp_path, fmt="xls"
+        )
+        (req,) = [u for u in seen if "listAssets" in u.path]
+
+        assert "balanceOut" in req.params["columns"]
+
+    async def test_a_zip_is_not_accepted_as_a_pdf(self, tmp_path: Path):
+        def wrong_type(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"PK\x03\x04zip")
+
+        with pytest.raises(ReportUnavailable):
+            await export_trial_balance(_client(wrong_type), *H1, tmp_path, fmt="pdf")
+
+    async def test_ledger_export_is_guarded_too(self, tmp_path: Path):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/v2/ledger/internal/general/"):
+                return httpx.Response(200, content=REFUSAL)
+            return httpx.Response(200, json={"values": ACCOUNTS, "fullResultSize": 3})
+
+        with pytest.raises(ReportUnavailable):
+            await export_ledger_report(_client(handler), *H1, tmp_path, accounts=[1920])
 
 
 class TestPostingCount:

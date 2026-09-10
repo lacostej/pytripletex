@@ -5,11 +5,37 @@ CSV from it. This module exists because for audit evidence that is not the same
 thing: a report the accounting system produced carries weight that one we
 rendered from the same API does not.
 
-**These are `/v2` paths and they accept an API token**, despite `internal` in the
-route and despite being absent from the published specification. Measured
-2026-09-10: `GET /v2/ledger/internal/general/pdf` answers 200 with `%PDF-1.4`
-under token auth. So the whole pipeline is schedulable — no web session, unlike
-SAF-T 1.3.
+None of these routes appear in the published specification, and they share
+neither a prefix nor an auth mode. Measured 2026-09-10, both companies:
+
+    Hovedbok          /v2/ledger/internal/general/{pdf,xls}      token
+    Saldobalanse      /v2/ledger/balanceSheet/{pdf,xls}          token
+    Anleggsregister   /v2/execute/listAssets/export/{pdf,xlsx}   token
+    Resultatrapport   /execute/resultReport2                     WEB SESSION
+
+Note `balanceSheet` is not under `internal`, `listAssets` sits under `/v2/execute`
+and spells the spreadsheet `xlsx` rather than `xls`, and `resultReport2` is a
+legacy form route that selects its format with `pdf=true`/`xls=true`. Guessing
+any of them from the shape of the others does not work.
+
+The spreadsheets are not one format either. The `/v2` routes return a real
+`.xlsx` zip; Resultatrapport returns Excel-flavoured HTML behind an
+`<?mso-application?>` instruction, served as `application/vnd.ms-excel` and named
+`.xls` — measured at 149 934 bytes over 139 rows. That is a genuine legacy `.xls`
+and not a defect, so it is named `.xls` here rather than claiming a zip container
+that is not present.
+
+**Three of the four are schedulable**, which SAF-T 1.3 is not. The income
+statement is the exception, and it fails dangerously rather than loudly: under a
+token it answers **200** with an HTML page reading `Du har ikke tilgang til denne
+funksjonen`. Every download here therefore checks the leading bytes and raises
+`ReportUnavailable` rather than leaving an error page in the pack under a `.pdf`
+name — where the next run would skip it as already done, making the failure
+permanent and silent.
+
+Note what that check cannot be: **a valid Resultatrapport spreadsheet and a
+refusal are both HTML.** "Did we get HTML?" answers neither question. The
+expected prefix is therefore per route and per format, not per format alone.
 
 **Tripletex discards the account from the filename.** Ask for one account and the
 download is still named `<Company>_Hovedbok_<today>_(<from> - <to>).pdf`,
@@ -64,6 +90,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tripletex.endpoints.ledger import list_accounts
+from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
     from tripletex.client import TripletexClient
@@ -90,6 +117,116 @@ _LEDGER_VIEW = {
 #: `xls` is the route; the file it returns is a real `.xlsx`. Measured: the body
 #: begins `PK\\x03\\x04` and Content-Disposition names it `.xlsx`.
 _SUFFIX = {"pdf": "pdf", "xls": "xlsx"}
+
+#: What each format must actually start with. Checked on every download because
+#: one of these routes answers 200 with an HTML error page — see
+#: `_download_checked`. The `/v2` routes return a real `.xlsx` zip; the legacy
+#: Resultatrapport returns Excel-flavoured HTML behind an `<?mso-application?>`
+#: instruction, which is a genuine `.xls` and not a defect.
+_PDF = b"%PDF"
+_XLSX = b"PK\x03\x04"
+_XLS_HTML = b"<?mso"
+
+#: Saldobalanse. `showAccountsWithoutTransactionsInPeriod` is deliberately on: an
+#: account that moved to zero and one that never existed are different findings,
+#: and only the first appears when it is off.
+_TRIAL_BALANCE_VIEW = {
+    "showAccountsWithoutTransactionsInPeriod": "true",
+    "pageFormat": "A4",
+}
+
+#: Resultatrapport. The `selected*Id=-1` values mean "no filter" — the report is
+#: a legacy `/execute/` form, and omitting them is not the same as passing -1.
+_INCOME_STATEMENT_VIEW = {
+    "viewMode": "0",
+    "isExpandedFilter": "false",
+    "period.periodType": "1",
+    "selectedCustomerId": "-1",
+    "selectedVendorId": "-1",
+    "selectedDepartmentId": "-1",
+    "selectedEmployeeId": "-1",
+    "selectedProjectId": "-1",
+    "selectedProjectCategoryId": "-1",
+    "selectedProductId": "-1",
+    "budgetType": "0",
+    "viewAccounts": "true",
+    "viewLastYear": "true",
+    "viewAccountingPeriods": "true",
+    "viewSoFar": "false",
+    "viewUnusedReportGroups": "false",
+    "showDecimalVerdi": "false",
+}
+
+#: Anleggsregister. `columns` is a comma-space separated list and its order is
+#: the column order in the output.
+#:
+#: **`columns` is load-bearing — do not drop it to simplify this.** Omitted, the
+#: route answers `200` with a `content-disposition` and a **zero-byte body**:
+#: a download that looks entirely successful and contains nothing. `groupBy` and
+#: `sorting` make no difference either way; `columns` alone decides it. The
+#: magic-byte check in `_download_checked` is what stops such a file reaching the
+#: pack, and `TestRefusalIsNotADocument` pins that.
+_ASSET_REGISTER_VIEW = {
+    "sorting": "name,ascending",
+    "groupBy": "ACCOUNT",
+    "query": "",
+    "columns": (
+        "depreciationMethod, status, dateOfAcquisition, lifetime, "
+        "balanceIn, balanceChange, balanceOut"
+    ),
+}
+
+
+class ReportUnavailable(RuntimeError):
+    """Tripletex answered, but with something other than the report.
+
+    Distinct from a transport error on purpose: the completeness check needs to
+    tell "this report does not exist for this period" from "the download broke".
+    """
+
+
+def _validate_format(fmt: str) -> None:
+    if fmt not in _SUFFIX:
+        raise ValueError(f"fmt must be 'pdf' or 'xls', not {fmt!r}")
+
+
+async def _download_checked(
+    client: TripletexClient,
+    path: str,
+    params: dict[str, str],
+    target: Path,
+    expect: bytes,
+) -> Path:
+    """Download, then refuse anything that is not the document it claims to be.
+
+    `/execute/resultReport2` answers **200 with an HTML page** when the caller
+    lacks access — `Feilsituasjon … Du har ikke tilgang til denne funksjonen` —
+    so the status code cannot distinguish a report from a refusal, and an
+    unchecked download leaves that page sitting in the pack under a `.pdf` name,
+    looking like evidence.
+
+    **Do not reach for `content-type` instead.** The three `/v2` routes get it
+    wrong in the direction that costs most: a response whose body begins `%PDF`
+    is served as `application/json;charset=UTF-8`, so trusting the header would
+    reject every real report and keep nothing. The legacy Resultatrapport is by
+    contrast honest — `application/pdf`, `application/vnd.ms-excel`, `text/html`
+    for the refusal — which is worse than uniform dishonesty, because a header
+    that is right three times in four invites exactly the guard that fails on the
+    fourth. `content-disposition` is accurate everywhere, but it describes what
+    the server meant to send; the bytes describe what arrived, and only the
+    second is evidence.
+    """
+    await client.download(path, params, target)
+
+    head = target.read_bytes()[:1024]
+    if head.startswith(expect):
+        return target
+
+    target.unlink(missing_ok=True)
+    complaint = " ".join(re.sub(r"<[^>]+>", " ", head.decode("utf-8", "replace")).split())
+    raise ReportUnavailable(
+        f"{path} returned {len(head)}+ bytes not starting {expect!r}: {complaint[:200]}"
+    )
 
 
 def _slug(text: str, limit: int = 40) -> str:
@@ -177,6 +314,15 @@ async def export_ledger_report(
     Passing `None` exports the entire ledger as a single file, which is what the
     UI does by default and is rarely what an audit pack wants.
 
+    **A PDF is capped at 15 000 postings and a whole year usually exceeds it.**
+    Above the cap the route answers `422` — `PDF-eksport er begrenset til 15000
+    posteringer per fil` — and `client.download` raises, so this fails loudly
+    rather than truncating. Measured: an unscoped 2025 (38 537 postings) is
+    refused as PDF, while the same request as `fmt="xls"` returns all of it in
+    2.1 MB. The cap is per *file*, so per-account exports stay well under it —
+    the busiest account measured was 3 445. Use `xls`, a shorter period, or
+    accounts, in that order of preference.
+
     **`date_to` is inclusive here.** The endpoint takes `dateToExclusive`, and
     this converts, so a caller asking for `2026-06-30` gets June included rather
     than silently losing its last day.
@@ -226,7 +372,166 @@ async def export_ledger_report(
             scoped["accountNumberFrom"] = str(number)
             scoped["accountNumberTo"] = str(number)
 
-        await client.download(f"/v2/ledger/internal/general/{fmt}", scoped, target)
+        await _download_checked(
+            client,
+            f"/v2/ledger/internal/general/{fmt}",
+            scoped,
+            target,
+            _PDF if fmt == "pdf" else _XLSX,
+        )
         written.append(target)
 
     return written
+
+
+async def export_trial_balance(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+    dest_dir: Path | str,
+    fmt: str = "pdf",
+    overwrite: bool = False,
+) -> Path:
+    """Saldobalanse — every account's opening balance, movement and close.
+
+    GET /v2/ledger/balanceSheet/{pdf,xls}, token auth.
+
+    Note this one is **not** under `internal`, unlike the Hovedbok route.
+    """
+    _validate_format(fmt)
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    target = dest_dir / f"saldobalanse_{date_from}_{date_to}.{_SUFFIX[fmt]}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    params = {
+        **_TRIAL_BALANCE_VIEW,
+        "dateFrom": date_from.isoformat(),
+        "dateToExclusive": (date_to + timedelta(days=1)).isoformat(),
+    }
+    if fmt == "pdf":
+        params["pdfOrientation"] = "PORTRAIT"
+
+    return await _download_checked(
+        client,
+        f"/v2/ledger/balanceSheet/{fmt}",
+        params,
+        target,
+        _PDF if fmt == "pdf" else _XLSX,
+    )
+
+
+async def export_income_statement(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+    dest_dir: Path | str,
+    fmt: str = "pdf",
+    overwrite: bool = False,
+) -> Path:
+    """Resultatrapport — the income statement. **Web session only.**
+
+    GET /execute/resultReport2, a legacy form route rather than a `/v2` path.
+
+    This is the one report in this module a token cannot reach, and it fails in
+    the worst possible way: an API token gets **200** with an HTML page saying
+    `Du har ikke tilgang til denne funksjonen`, not a 401. The session is
+    therefore checked before the request, and the bytes after it.
+
+    Format is selected by presence — `pdf=true` or `xls=true` — not by the path.
+
+    **There is no way to get a real `.xlsx` here, so do not go looking.**
+    `xlsx=true`, `excel=true`, `ods=true`, `format=xlsx` and `exportFormat=XLSX`
+    are all silently ignored: each returns the same ~26 KB on-screen HTML page
+    that sending no format parameter at all returns, with no
+    `content-disposition`. An `Accept:` header for the OpenXML type changes
+    nothing either. The route's `.xls` is legacy Excel HTML, which Excel opens
+    natively — it is not a damaged `.xlsx`.
+
+    A third format exists and is not exposed here: `csv=true` yields the same
+    report as 115 rows carrying every month, the year total and the prior-year
+    comparison. It is worth knowing about, and worth two warnings if it is ever
+    added — it is **tab**-separated despite the name, and **ISO-8859-1 despite
+    declaring `charset=UTF-8`**, so decoding it as the header instructs raises
+    `UnicodeDecodeError` on the first Norwegian vowel.
+    """
+    _validate_format(fmt)
+    require_web_session(client.session, "The income statement report")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # Not `_SUFFIX`: this route's spreadsheet is a legacy `.xls`, not an `.xlsx`.
+    suffix = "pdf" if fmt == "pdf" else "xls"
+    target = dest_dir / f"resultatrapport_{date_from}_{date_to}.{suffix}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    params = {
+        **_INCOME_STATEMENT_VIEW,
+        "period.startDate": date_from.isoformat(),
+        # This route's end date is inclusive, unlike the /v2 report routes.
+        "period.endOfPeriodDate": date_to.isoformat(),
+    }
+    if fmt == "pdf":
+        params["pdf"] = "true"
+        params["pdfSize"] = "A4 landscape"
+        params["menuHeader"] = "Resultatrapport"
+    else:
+        params["xls"] = "true"
+
+    return await _download_checked(
+        client,
+        "/execute/resultReport2",
+        params,
+        target,
+        _PDF if fmt == "pdf" else _XLS_HTML,
+    )
+
+
+async def export_fixed_asset_register(
+    client: TripletexClient,
+    year: int,
+    dest_dir: Path | str,
+    fmt: str = "pdf",
+    overwrite: bool = False,
+) -> Path:
+    """Anleggsregister — the fixed asset register, as at a financial year.
+
+    GET /v2/execute/listAssets/export/{pdf,xlsx}, token auth.
+
+    Takes a **year**, not a date, because the endpoint does: passing an `as_of`
+    date would mean silently discarding its month and day.
+
+    **The API accepts years the UI refuses.** The UI's picker offered only the
+    current year, but 2022 through 2027 all return a document, and the cell
+    content differs for each — compared with the workbook metadata excluded, so
+    this is not just an embedded timestamp moving. Prior years are reachable
+    here even though a person cannot select them.
+    """
+    _validate_format(fmt)
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    target = dest_dir / f"anleggsregister_{year}.{_SUFFIX[fmt]}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    params = {**_ASSET_REGISTER_VIEW, "year": str(year)}
+    if fmt == "pdf":
+        params["pdfOrientation"] = "PORTRAIT"
+
+    # This route spells the spreadsheet `xlsx`, where the ledger routes say `xls`.
+    segment = "pdf" if fmt == "pdf" else "xlsx"
+    return await _download_checked(
+        client,
+        f"/v2/execute/listAssets/export/{segment}",
+        params,
+        target,
+        _PDF if fmt == "pdf" else _XLSX,
+    )
