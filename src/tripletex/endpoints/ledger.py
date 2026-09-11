@@ -22,6 +22,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from tripletex.endpoints._paging import paginate
+from tripletex.endpoints._dates import exclusive_end
 from tripletex.models import Account, LedgerVoucher, Posting, VatType
 
 if TYPE_CHECKING:
@@ -29,7 +30,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_ACCOUNT_FIELDS = "id,number,name,type,vatType(id,name,percentage),isBankAccount,isInactive"
+_ACCOUNT_FIELDS = (
+    "id,number,name,type,vatType(id,name,percentage),"
+    "isBankAccount,isInactive,isCloseable"
+)
 
 _POSTING_FIELDS = (
     "id,date,description,amount,amountCurrency,currency(code),"
@@ -110,7 +114,7 @@ async def list_vouchers_with_postings(
 
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": fields,
     }
     values = await paginate(client, "/v2/ledger/voucher", params=params, limit=limit)
@@ -142,7 +146,7 @@ async def list_close_groups(
     """
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": (
             "id,date,postings(id,date,amount,account(number,name),"
             "customer(id,name),supplier(id,name),voucher(id,number))"
@@ -171,7 +175,7 @@ async def list_postings(
     """
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": _POSTING_FIELDS + ",voucher(id,number)",
     }
     values = await paginate(client, "/v2/ledger/posting", params=params, limit=limit)

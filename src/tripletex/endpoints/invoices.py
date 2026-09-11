@@ -6,6 +6,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from tripletex.endpoints._paging import paginate
+from tripletex.endpoints._dates import exclusive_end
 from tripletex.models import Invoice, Reminder
 
 if TYPE_CHECKING:
@@ -103,7 +104,7 @@ async def list_reminders(
     `fields` is deliberately not used: the endpoint rejects a nested
     `invoice(...)` expansion with 400, so callers join on `invoice_id`.
     """
-    params = {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
+    params = {"dateFrom": date_from.isoformat(), "dateTo": exclusive_end(date_to)}
     if customer_id is not None:
         params["customerId"] = str(customer_id)
     values = await paginate(client, "/v2/reminder", params=params, limit=limit)

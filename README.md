@@ -301,6 +301,35 @@ You can also pass credentials via environment variables (`TRIPLETEX_USERNAME`,
 `TRIPLETEX_PASSWORD_VISMA`, `TRIPLETEX_CONSUMER_TOKEN`, `TRIPLETEX_EMPLOYEE_TOKEN`)
 or manual browser cookies (`--cookie`, `--context-id`, `--csrf-token`).
 
+### Date ranges are inclusive at both ends
+
+Every function taking `date_from` and `date_to` includes both days. Asking for
+June means June:
+
+```python
+# All of June, 30 June included.
+await list_postings(api, date(2026, 6, 1), date(2026, 6, 30))
+
+# A single day. Not an empty range.
+await list_postings(api, date(2026, 6, 5), date(2026, 6, 5))
+```
+
+**This differs from the Tripletex API underneath**, which documents `dateTo` as
+*"To and excluding"* on every date-ranged path. The library converts at the
+boundary (`endpoints/_dates.py`), so you never send a raw `date_to` yourself —
+but it matters if you are comparing against a hand-written `curl`, or reading
+Tripletex's own documentation alongside this one. The numbers will only agree if
+the `curl` asks for one day more.
+
+Report exports are the same: `export_ledger_report(..., date(2025,12,31))`
+covers 31 December, though the route's parameter is literally named
+`dateToExclusive`.
+
+Getting this wrong is quiet rather than loud — the call succeeds and the total is
+merely wrong by a day. On one measured account it dropped 13 of 346 postings and
+flipped the reported movement from +20 182.00 to −23 286.00, because the missing
+day was month-end, where the accruals and settlements live.
+
 ## Development
 
 ```bash
