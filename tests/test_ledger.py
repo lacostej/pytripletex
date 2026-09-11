@@ -180,7 +180,11 @@ class TestVouchersWithPostings:
         await list_vouchers_with_postings(_client(handler), *JULY, include_changes=True)
         assert seen[1].endswith(",changes")
 
-    async def test_date_range_is_sent(self):
+    async def test_date_range_is_sent_with_an_exclusive_end(self):
+        """`/v2/ledger/voucher` documents `dateTo` as "To and excluding", so an
+        inclusive 2026-07-31 must go out as 2026-08-01. Sending it unconverted
+        silently drops the last day of every range — and month-end is where the
+        accruals and settlements are."""
         seen: list[httpx.URL] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -190,7 +194,7 @@ class TestVouchersWithPostings:
         await list_vouchers_with_postings(_client(handler), *JULY)
 
         assert seen[0].params["dateFrom"] == "2026-07-01"
-        assert seen[0].params["dateTo"] == "2026-07-31"
+        assert seen[0].params["dateTo"] == "2026-08-01"
 
 
 class TestAccounts:

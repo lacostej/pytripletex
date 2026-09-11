@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tripletex.endpoints._paging import paginate
+from tripletex.endpoints._dates import exclusive_end
 from tripletex.models import VoucherMeta
 from tripletex.session import require_web_session
 
@@ -49,7 +50,7 @@ async def list_vouchers(
     if date_from:
         params["dateFrom"] = date_from.isoformat()
     if date_to:
-        params["dateTo"] = date_to.isoformat()
+        params["dateTo"] = exclusive_end(date_to)
 
     values = await paginate(client, "/v2/ledger/voucher", params=params, limit=limit)
     return [_to_meta(v) for v in values]
@@ -81,7 +82,7 @@ async def list_non_posted_vouchers(
     if date_from:
         params["dateFrom"] = date_from.isoformat()
     if date_to:
-        params["dateTo"] = date_to.isoformat()
+        params["dateTo"] = exclusive_end(date_to)
     if changed_since:
         params["changedSince"] = changed_since
 
@@ -110,7 +111,7 @@ async def list_reception_vouchers(
     if date_from:
         params["dateFrom"] = date_from.isoformat()
     if date_to:
-        params["dateTo"] = date_to.isoformat()
+        params["dateTo"] = exclusive_end(date_to)
     if search_text:
         params["searchText"] = search_text
 

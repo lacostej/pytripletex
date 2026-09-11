@@ -146,7 +146,9 @@ class TestInvoiceReminders:
         await list_reminders(_api_client(handler), *YEAR)
 
         assert seen[0].params["dateFrom"] == "2025-01-01"
-        assert seen[0].params["dateTo"] == "2025-12-31"
+        # `/v2/reminder` documents dateTo as "To and excluding": an inclusive
+        # 2025-12-31 goes out as 2026-01-01, or 31 December is lost.
+        assert seen[0].params["dateTo"] == "2026-01-01"
         assert "invoiceDateFrom" not in seen[0].params
 
     async def test_hits_the_reminder_path_not_invoice_reminder(self):

@@ -22,6 +22,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from tripletex.endpoints._paging import paginate
+from tripletex.endpoints._dates import exclusive_end
 from tripletex.models import Account, LedgerVoucher, Posting, VatType
 
 if TYPE_CHECKING:
@@ -110,7 +111,7 @@ async def list_vouchers_with_postings(
 
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": fields,
     }
     values = await paginate(client, "/v2/ledger/voucher", params=params, limit=limit)
@@ -142,7 +143,7 @@ async def list_close_groups(
     """
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": (
             "id,date,postings(id,date,amount,account(number,name),"
             "customer(id,name),supplier(id,name),voucher(id,number))"
@@ -171,7 +172,7 @@ async def list_postings(
     """
     params = {
         "dateFrom": date_from.isoformat(),
-        "dateTo": date_to.isoformat(),
+        "dateTo": exclusive_end(date_to),
         "fields": _POSTING_FIELDS + ",voucher(id,number)",
     }
     values = await paginate(client, "/v2/ledger/posting", params=params, limit=limit)
