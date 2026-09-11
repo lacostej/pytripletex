@@ -76,11 +76,18 @@ class TestExport:
         assert out.read_bytes() == ARCHIVE
         assert zipfile.is_zipfile(out)
 
-    async def test_a_directory_destination_is_named_by_year(self, tmp_path):
+    async def test_a_directory_destination_is_named_by_year_and_version(self, tmp_path):
+        """1.2 and 1.3 are different documents, so two exports of one year must
+        not overwrite each other."""
         out = await export_saft(_client(), 2025, tmp_path)
 
-        assert out.name == "saft-2025.zip"
+        assert out.name == "saft-2025-v1.3.zip"
         assert out.parent == tmp_path
+
+        older = await export_saft(_client(), 2025, tmp_path, version="1.2")
+
+        assert older.name == "saft-2025-v1.2.zip"
+        assert older != out
 
     async def test_sends_the_year(self):
         seen: list[httpx.URL] = []
@@ -213,7 +220,9 @@ class TestWebExport:
         assert seen[0].params["contextId"] == "11111111"
 
     async def test_version_13_is_the_default(self, tmp_path):
-        """The API cannot produce it at all, so it must not be an opt-in here."""
+        """1.30 is the version mandatory from 2025-01-01, so a caller who does
+        not think to ask must not be handed a 1.2 file. Both routes default to
+        it — the token one since API 2.75.10."""
         import datetime
 
         seen: list[httpx.URL] = []

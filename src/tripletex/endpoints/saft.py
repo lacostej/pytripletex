@@ -3,24 +3,34 @@
 `GET /v2/saft/exportSAFT?year=YYYY` is documented, marked `[BETA]`, and works
 with an API token, so unlike most of the reporting surface this is schedulable.
 
-**It is a ZIP, and it is version 1.20.** Two things measured 2026-09-09 that the
-specification does not say and that decide whether this is the artifact you
-want:
+**It is a ZIP.** The response is a zip archive containing one `.xml`, despite the
+inner file and every manual export being named `.xml`. Anything pointed at a
+bare XML path needs the extra step.
 
-- The response is a zip archive containing one `.xml`, despite the inner file
-  and every manual export being named `.xml`. Anything pointed at a bare XML
-  path needs the extra step.
-- The header reads `AuditFileVersion 1.20`. Tripletex's *web* export warns about
-  SAF-T codes invalid for **1.3** — on both companies, `8960`
-  (`saftCode 89`) and `9999` (`saftCode NA`) — while still producing a file. The
-  API export emits those same codes without comment.
+**The token route can emit 1.3, as of 2026-09-11.** This is new and it matters:
+`version` was absent from the endpoint when this module was written, which is
+why `export_saft_web` exists at all. It appears in `/v2/openapi.json` at API
+2.75.10 — `SAF-T schema version to export: "1.2" (default) or "1.3", "1.4" is
+planned` — and is *not* in `/v2/swagger.json`, which is frozen at 2.71.30 and
+still describes `year` as the only argument.
 
-Whether the web export therefore writes 1.3 where this writes 1.20 is
-**unverified**: only the API side has been read. If it does, the two are
-different versions of the standard rather than the same file by two routes, and
-this endpoint has no way to ask for the newer one — `year` is its only argument.
-Use `audit_file_version()` on both before assuming they are interchangeable, and
-check which version the recipient requires.
+Verified against a live token on 2026-09-11, Bonita Handel FY2025:
+
+    version=1.3   1,506,602 b   AuditFileVersion 1.30
+    version=1.2   1,490,559 b   AuditFileVersion 1.20
+    (omitted)     1,490,560 b   AuditFileVersion 1.20
+
+So **1.3 no longer needs a web session**, and a compliant export is schedulable.
+`export_saft_web` is kept for the one thing the token route still cannot do —
+an arbitrary date range inside a year — not for the version.
+
+Omitting `version` still yields 1.20, so older callers are unaffected; an empty
+or unknown value is a `422` rather than a silent fallback.
+
+1.2 and 1.3 are different documents, not the same file relabelled — the account
+element swaps `StandardAccountID` for `GroupingCategory` + `GroupingCode`. Use
+`audit_file_version()` on anything you did not just generate, and check which
+version the recipient requires.
 
 It is also synchronous and expands considerably: one measured year of a small
 company was 449 KB compressed and 11.4 MB of XML, and a larger company scales
@@ -43,47 +53,62 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: What this endpoint was measured to emit, 2026-09-09. Not a promise from
-#: Tripletex — read it off the file with `audit_file_version()` rather than
-#: trusting this constant.
-EXPORTED_AUDIT_FILE_VERSION = "1.20"
+#: What the endpoint emits when `version` is omitted, measured 2026-09-11. Not a
+#: promise from Tripletex — read it off the file with `audit_file_version()`
+#: rather than trusting this constant.
+DEFAULT_AUDIT_FILE_VERSION = "1.20"
+
+#: Versions both routes offer. Requested as "1.2"/"1.3"; reported inside the file
+#: as "1.20"/"1.30". The token route accepts these too as of API 2.75.10, so this
+#: is no longer a web-only concern.
+SAFT_VERSIONS = ("1.2", "1.3")
 
 
 async def export_saft(
     client: TripletexClient,
     year: int,
     dest: Path | str,
+    version: str = "1.3",
     extract: bool = False,
 ) -> Path:
     """Download the SAF-T export for `year`. Returns the path written.
 
-    GET /v2/saft/exportSAFT. Streams to `dest` rather than buffering, because
-    the archive expands roughly twenty-five-fold and a full year of a busy
-    company is not something to hold in memory.
+    GET /v2/saft/exportSAFT, **API token** — no web session. Streams to `dest`
+    rather than buffering, because the archive expands roughly twenty-five-fold
+    and a full year of a busy company is not something to hold in memory.
+
+    **`version` defaults to 1.3, not to Tripletex's default of 1.2.** 1.30 is the
+    version mandatory for periods from 2025-01-01, so defaulting to the
+    endpoint's own 1.2 would hand back a non-compliant file to a caller who did
+    not think to ask. Pass `version="1.2"` explicitly for an older period.
+
+    Note this is a behaviour change: before API 2.75.10 the endpoint had no
+    `version` argument and always produced 1.20.
 
     `dest` may be a directory, in which case the file is written as
-    `saft-<year>.zip` inside it. Note that repeated calls to the same path
-    overwrite: Tripletex stamps its own `Content-Disposition` filename with the
-    request time, so if you want that distinction, pass an explicit path.
+    `saft-<year>-v<version>.zip` inside it — the version is in the name because
+    1.2 and 1.3 are different documents, and two exports of one year must not
+    overwrite each other. Repeated calls to the same path do overwrite.
 
     Set `extract` to unpack the single XML beside the archive and return that
     path instead. Off by default: the zip is what the endpoint gives, and
     keeping it is the honest artifact to archive.
-
-    **Read the module docstring before using this for a filing.** The export was
-    measured at version 1.20, and whether that matches what the recipient wants
-    is not something this call can tell you.
     """
+    if version not in SAFT_VERSIONS:
+        raise ValueError(f"version must be one of {SAFT_VERSIONS}, not {version!r}")
+
     dest = Path(dest)
 
     if dest.is_dir() or not dest.suffix:
         dest.mkdir(parents=True, exist_ok=True)
-        target = dest / f"saft-{year}.zip"
+        target = dest / f"saft-{year}-v{version}.zip"
     else:
         target = dest
 
-    logger.info("Exporting SAF-T for %s (version %s)", year, EXPORTED_AUDIT_FILE_VERSION)
-    await client.download("/v2/saft/exportSAFT", {"year": str(year)}, target)
+    logger.info("Exporting SAF-T %s for %s", version, year)
+    await client.download(
+        "/v2/saft/exportSAFT", {"year": str(year), "version": version}, target
+    )
 
     if not extract:
         return target
@@ -139,12 +164,7 @@ def _first_version(root) -> str | None:
     return None
 
 
-# --- The web export, which the token API cannot reach -----------------------
-
-#: Versions the web export offers. The API emits 1.2 only — reported in the file
-#: header as "1.20" — and takes no version argument, so 1.3 is web-session only.
-SAFT_VERSIONS = ("1.2", "1.3")
-
+# --- The web export: arbitrary date ranges, which the token route cannot do ---
 
 async def saft_range_is_legal(
     client: TripletexClient, date_from: date, date_to: date
@@ -195,11 +215,14 @@ async def export_saft_web(
     """Export SAF-T over a date range, at a chosen version. Web session only.
 
     GET /execute/saftExport?act=downloadSAFTZipfile — the same call the UI makes,
-    read off `/saftExport.js`. It offers three things the documented API does not:
+    read off `/saftExport.js`. It offers two things the documented API does not:
 
     - **an arbitrary date range** rather than a whole year;
-    - **version 1.3**, which the token endpoint cannot produce at all;
     - delivery into bilagsmottak, and splitting for very large exports.
+
+    It is **no longer needed for version 1.3**: `export_saft` reaches that with a
+    token as of API 2.75.10. Prefer the token route unless you need a range that
+    is not a whole year — it needs no browser session, so it can be scheduled.
 
     `send_to_inbox_archive` changes what this returns: the file is delivered to
     the document inbox rather than to the caller, so nothing is written locally
