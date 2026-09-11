@@ -131,6 +131,19 @@ class Account(BaseModel):
     is_bank_account: bool = Field(default=False, alias="isBankAccount")
     is_inactive: bool = Field(default=False, alias="isInactive")
 
+    #: Whether Tripletex has this account configured for open-item matching
+    #: (åpen post) — the setting that makes "unclosed" a meaningful state.
+    #:
+    #: **Configured for, not used for.** Measured on the larger company: 50 of
+    #: 603 accounts, and *no* account carrying a close group has it `False`, so
+    #: it is a superset with no false negatives. But it is a wider set than the
+    #: accounts actually matched — `6015 Avskrivning` is closeable and has zero
+    #: close groups — so it answers "could this account have open items?", not
+    #: "does it". Whether an unclosed line on a configured-but-unused account is
+    #: a finding is the caller's judgement, not this library's; join against
+    #: `ledger.list_close_groups` for the period to narrow it.
+    is_closeable: bool = Field(default=False, alias="isCloseable")
+
     model_config = {"populate_by_name": True}
 
 

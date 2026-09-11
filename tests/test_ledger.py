@@ -286,3 +286,35 @@ class TestPostings:
         got = await list_postings(client, *JULY, account_numbers=[6015])
 
         assert [p.id for p in got] == [2084130993]
+
+
+class TestOpenItemAccounts:
+    """`isCloseable` is Tripletex's open-item (åpen post) configuration flag.
+
+    Measured on the larger company: 50 of 603 accounts, and no account carrying
+    a close group has it `False` — a superset with no false negatives.
+    """
+
+    async def test_closeable_flag_is_parsed(self):
+        receivables = {**ACCOUNT, "number": 1500, "isCloseable": True}
+        (a,) = await list_accounts(_client(_rows(receivables)))
+
+        assert a.is_closeable
+
+    async def test_absent_flag_defaults_to_false(self):
+        """A nested `account(...)` expansion returns only the fields asked for,
+        so the flag is routinely missing. Missing must not read as closeable."""
+        (a,) = await list_accounts(_client(_rows(ACCOUNT)))
+
+        assert not a.is_closeable
+
+    async def test_the_flag_is_requested(self):
+        seen: list[httpx.URL] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url)
+            return httpx.Response(200, json={"values": [], "fullResultSize": 0})
+
+        await list_accounts(_client(handler))
+
+        assert "isCloseable" in seen[0].params["fields"]

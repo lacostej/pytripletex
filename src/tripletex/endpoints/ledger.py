@@ -30,7 +30,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_ACCOUNT_FIELDS = "id,number,name,type,vatType(id,name,percentage),isBankAccount,isInactive"
+_ACCOUNT_FIELDS = (
+    "id,number,name,type,vatType(id,name,percentage),"
+    "isBankAccount,isInactive,isCloseable"
+)
 
 _POSTING_FIELDS = (
     "id,date,description,amount,amountCurrency,currency(code),"
