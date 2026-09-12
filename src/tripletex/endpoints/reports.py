@@ -535,3 +535,205 @@ async def export_fixed_asset_register(
         target,
         _PDF if fmt == "pdf" else _XLSX,
     )
+
+
+# --- Statutory reports: MVA and payroll ------------------------------------
+
+#: Resultatrapport, Feriepengeliste and Lønnsrapport are all legacy `/execute/`
+#: forms that take the period the same way. `periodType=1` is a date range.
+def _period(date_from: date, date_to: date) -> dict[str, str]:
+    """The period parameters the `/execute/` report forms take.
+
+    **`date_to` is inclusive on these routes**, unlike the `/v2` ones — see
+    `endpoints._dates`. They are not converted, and must not be.
+    """
+    return {
+        "period.startDate": date_from.isoformat(),
+        "period.endOfPeriodDate": date_to.isoformat(),
+        "period.periodType": "1",
+    }
+
+
+#: The three documents Tripletex files per VAT termin, and the `act` that
+#: fetches each. `downloadReceipt` is the Altinn submission receipt — it does
+#: come from Tripletex, which was an open question until measured.
+VAT_RETURN_DOCUMENTS = {
+    "melding": "downloadVatReturnsReport",
+    "spesifikasjon": "downloadSpecification",
+    "kvittering": "downloadReceipt",
+}
+
+
+async def list_vat_returns(client: TripletexClient, year: int | None = None) -> list[dict]:
+    """Every VAT termin and whether it has been filed. Token or web session.
+
+    GET /v2/vatReturns/status/list.
+
+    This is what turns a year and a termin into the `vatReturnsId` the document
+    downloads need, so it is the first half of `export_vat_return`. Worth
+    calling directly when you only want the status: it carries `deliveryStatus`
+    and `paymentStatus` without fetching any PDF.
+
+    **A termin with nothing filed reports `vatReturns2022Id: 0`** and
+    `deliveryStatus: NOT_STARTED`. That is the clean way to tell a termin that
+    has not happened from a download that failed — asking for id `0` returns an
+    HTML page, not a document.
+    """
+    body = await client.get_json("/v2/vatReturns/status/list", {"count": "1000"})
+    rows = body.get("values", [])
+    if year is not None:
+        rows = [r for r in rows if r.get("year") == year]
+    return rows
+
+
+async def export_vat_return(
+    client: TripletexClient,
+    year: int,
+    termin: int,
+    dest_dir: Path | str,
+    overwrite: bool = False,
+) -> list[Path]:
+    """The three MVA documents for one termin. **Web session only.**
+
+    GET /execute/vatReturns2022?act=…&vatReturnsId=…, a legacy form route.
+
+    Returns melding, spesifikasjon and kvittering, in that order. The id is
+    resolved from `list_vat_returns`, so the caller passes the termin it thinks
+    in rather than an internal id.
+
+    Raises `ReportUnavailable` if the termin has not been filed — measured, an
+    unfiled termin carries id `0` and the route answers 200 with an HTML page.
+    Check `list_vat_returns` first if an unfiled termin is expected rather than
+    exceptional; the completeness check needs to tell those apart.
+    """
+    require_web_session(client.session, "MVA return documents")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = await list_vat_returns(client, year)
+    row = next((r for r in rows if r.get("term") == termin), None)
+    if row is None:
+        raise ReportUnavailable(f"No VAT termin {year}-T{termin} exists")
+
+    vat_returns_id = row.get("vatReturns2022Id") or 0
+    if not vat_returns_id:
+        status = (row.get("deliveryStatus") or {}).get("status", "unknown")
+        raise ReportUnavailable(
+            f"VAT termin {year}-T{termin} has not been filed (status {status}), "
+            f"so its documents do not exist"
+        )
+
+    written: list[Path] = []
+    for name, act in VAT_RETURN_DOCUMENTS.items():
+        target = dest_dir / f"mva-{name}_{year}-T{termin}.pdf"
+        if target.exists() and not overwrite:
+            logger.info("Skipping %s — already present", target.name)
+            written.append(target)
+            continue
+        await _download_checked(
+            client,
+            "/execute/vatReturns2022",
+            {"act": act, "vatReturnsId": str(vat_returns_id)},
+            target,
+            _PDF,
+        )
+        written.append(target)
+    return written
+
+
+async def export_holiday_pay_list(
+    client: TripletexClient,
+    year: int,
+    dest_dir: Path | str,
+    fmt: str = "pdf",
+    overwrite: bool = False,
+) -> Path:
+    """Feriepengeliste — holiday pay owed per employee. **Web session only.**
+
+    GET /execute/vacationAllowanceReport. Reconciled against A07 and against
+    account 2940 Skyldig feriepenger, which is why the audit pack carries it.
+    """
+    _validate_format(fmt)
+    require_web_session(client.session, "The holiday pay list")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    suffix = "pdf" if fmt == "pdf" else "xls"
+    target = dest_dir / f"feriepengeliste_{year}.{suffix}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    params = {
+        **_period(date(year, 1, 1), date(year, 12, 31)),
+        "includeEmployees": "true",
+        "includeContacts": "false",
+        "isExpandedFilter": "false",
+        "selectedDepartmentId": "-1",
+        "selectedEmployeeCategoryId": "-1",
+        "fromStartOfYear": "false",
+        "showDetailedReport": "false",
+        "hideZeroBasis": "false",
+        "hideZeroCreditBalance": "false",
+    }
+    if fmt == "pdf":
+        params["pdf"] = "true"
+        params["pdfSize"] = "A4 portrait"
+    else:
+        params["xls"] = "true"
+
+    return await _download_checked(
+        client, "/execute/vacationAllowanceReport", params, target,
+        _PDF if fmt == "pdf" else _XLS_HTML,
+    )
+
+
+async def export_employee_salary_report(
+    client: TripletexClient,
+    year: int,
+    dest_dir: Path | str,
+    fmt: str = "pdf",
+    overwrite: bool = False,
+) -> Path:
+    """Lønnsrapport — what each employee was paid. **Web session only.**
+
+    GET /execute/employeeWageReport.
+
+    **The period must be sent as `period.*`.** The UI omits it and gets the
+    current year; `year=2025` looks like it should work and is silently ignored,
+    returning the current year's file under the current year's name. Only
+    `period.startDate`/`period.endOfPeriodDate` actually move it — measured, 2025
+    returns a different document from 2026.
+
+    The UI reaches an earlier year in two requests — a `scope=ajaxContent`
+    view-switch, then the PDF with a dozen more filter parameters
+    (`selectedEmployeeId=-1`, `wageCodeId=-1`, `payrollTaxBasisType2=-2` …).
+    Neither is needed. Sending `period.*` alone returns a document byte-identical
+    in size and word-for-word identical in extracted text to the full UI request,
+    so the extra parameters are defaults and the view-switch is UI state. Unlike
+    `_INCOME_STATEMENT_VIEW`, where the `-1`s genuinely matter, these are not
+    carried.
+    """
+    _validate_format(fmt)
+    require_web_session(client.session, "The employee salary report")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    suffix = "pdf" if fmt == "pdf" else "xls"
+    target = dest_dir / f"lonnsrapport-ansatte_{year}.{suffix}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    params = dict(_period(date(year, 1, 1), date(year, 12, 31)))
+    if fmt == "pdf":
+        params["pdf"] = "true"
+        params["pdfSize"] = "A4 portrait"
+    else:
+        params["xls"] = "true"
+
+    return await _download_checked(
+        client, "/execute/employeeWageReport", params, target,
+        _PDF if fmt == "pdf" else _XLS_HTML,
+    )

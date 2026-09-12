@@ -22,6 +22,10 @@ from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
 from tripletex.endpoints.reports import (
     ReportUnavailable,
+    export_employee_salary_report,
+    export_holiday_pay_list,
+    export_vat_return,
+    list_vat_returns,
     export_fixed_asset_register,
     export_income_statement,
     export_ledger_report,
@@ -465,3 +469,148 @@ class TestPostingCount:
         await ledger_posting_count(_client(_serving(seen=seen)), *H1)
 
         assert "accountNumberFrom" not in seen[0].params
+
+
+#: What /v2/vatReturns/status/list returns. T1 filed, T4 never started — the
+#: distinction the completeness check depends on.
+VAT_STATUS = {
+    "values": [
+        {"year": 2026, "term": 1, "vatReturns2022Id": 1702419, "voucherNumber": 50490,
+         "deliveryStatus": {"status": "RECEIPT_RECEIVED"},
+         "paymentStatus": {"status": "PAYMENT_REGISTERED"}},
+        {"year": 2026, "term": 4, "vatReturns2022Id": 0, "voucherNumber": 0,
+         "deliveryStatus": {"status": "NOT_STARTED"}, "paymentStatus": None},
+        {"year": 2025, "term": 6, "vatReturns2022Id": 1618048, "voucherNumber": 51955,
+         "deliveryStatus": {"status": "RECEIPT_RECEIVED"}, "paymentStatus": None},
+    ],
+    "fullResultSize": 3,
+}
+
+
+def _statutory(body: bytes = b"%PDF-1.4 stub", seen: list | None = None):
+    """VAT status as JSON; the /execute/ report routes as documents."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request.url)
+        if request.url.path == "/v2/vatReturns/status/list":
+            return httpx.Response(200, json=VAT_STATUS)
+        return httpx.Response(200, content=body)
+
+    return handler
+
+
+class TestVatReturns:
+    async def test_status_carries_the_id_the_download_needs(self):
+        rows = await list_vat_returns(_web_client(_statutory()), 2026)
+
+        assert [r["term"] for r in rows] == [1, 4]
+        assert rows[0]["vatReturns2022Id"] == 1702419
+
+    async def test_three_documents_named_for_the_termin(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        written = await export_vat_return(
+            _web_client(_statutory(seen=seen)), 2026, 1, tmp_path
+        )
+
+        assert [p.name for p in written] == [
+            "mva-melding_2026-T1.pdf",
+            "mva-spesifikasjon_2026-T1.pdf",
+            "mva-kvittering_2026-T1.pdf",
+        ]
+        acts = [u.params["act"] for u in seen if "vatReturns2022" in u.path]
+        assert acts == ["downloadVatReturnsReport", "downloadSpecification", "downloadReceipt"]
+
+    async def test_the_resolved_id_is_sent_not_the_termin(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        await export_vat_return(_web_client(_statutory(seen=seen)), 2026, 1, tmp_path)
+
+        assert all(
+            u.params["vatReturnsId"] == "1702419"
+            for u in seen if "vatReturns2022" in u.path
+        )
+
+    async def test_an_unfiled_termin_is_an_absence_not_a_failure(self, tmp_path: Path):
+        """T4 carries id 0 and NOT_STARTED. Asking for it returns an HTML page,
+        so without this the caller gets a mangled download instead of the fact
+        that the termin has not happened."""
+        seen: list[httpx.URL] = []
+
+        with pytest.raises(ReportUnavailable, match="NOT_STARTED"):
+            await export_vat_return(_web_client(_statutory(seen=seen)), 2026, 4, tmp_path)
+
+        assert not [u for u in seen if "vatReturns2022" in u.path]
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_termin_that_does_not_exist_is_refused(self, tmp_path: Path):
+        with pytest.raises(ReportUnavailable, match="No VAT termin"):
+            await export_vat_return(_web_client(_statutory()), 2026, 9, tmp_path)
+
+    async def test_api_token_is_refused_up_front(self, tmp_path: Path):
+        with pytest.raises(WebSessionRequired):
+            await export_vat_return(_client(_statutory()), 2026, 1, tmp_path)
+
+    async def test_rerun_skips(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        client = _web_client(_statutory(seen=seen))
+
+        await export_vat_return(client, 2026, 1, tmp_path)
+        await export_vat_return(client, 2026, 1, tmp_path)
+
+        assert len([u for u in seen if "vatReturns2022" in u.path]) == 3
+
+
+class TestPayrollReports:
+    async def test_holiday_pay_list_is_named_for_the_year(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        got = await export_holiday_pay_list(_web_client(_statutory(seen=seen)), 2025, tmp_path)
+        (req,) = [u for u in seen if "vacationAllowance" in u.path]
+
+        assert got.name == "feriepengeliste_2025.pdf"
+        assert req.params["period.startDate"] == "2025-01-01"
+        assert req.params["period.endOfPeriodDate"] == "2025-12-31"
+
+    async def test_salary_report_sends_the_period_not_a_year(self, tmp_path: Path):
+        """`year=2025` is accepted and silently ignored, returning the current
+        year's document. Only `period.*` moves it."""
+        seen: list[httpx.URL] = []
+        got = await export_employee_salary_report(
+            _web_client(_statutory(seen=seen)), 2025, tmp_path
+        )
+        (req,) = [u for u in seen if "employeeWageReport" in u.path]
+
+        assert got.name == "lonnsrapport-ansatte_2025.pdf"
+        assert req.params["period.startDate"] == "2025-01-01"
+        assert "year" not in req.params
+
+    async def test_period_end_is_inclusive_on_these_routes(self, tmp_path: Path):
+        """These are `/execute/` forms, where the end date is not exclusive.
+        Converting it would silently drop 31 December."""
+        seen: list[httpx.URL] = []
+        await export_employee_salary_report(_web_client(_statutory(seen=seen)), 2025, tmp_path)
+        (req,) = [u for u in seen if "employeeWageReport" in u.path]
+
+        assert req.params["period.endOfPeriodDate"] == "2025-12-31"
+
+    async def test_spreadsheets_are_legacy_xls(self, tmp_path: Path):
+        """Same mso-HTML format as the income statement, not an xlsx zip."""
+        got = await export_employee_salary_report(
+            _web_client(_statutory(body=EXCEL_HTML)), 2025, tmp_path, fmt="xls"
+        )
+
+        assert got.suffix == ".xls"
+        assert got.read_bytes().startswith(b"<?mso")
+
+    async def test_both_refuse_a_token(self, tmp_path: Path):
+        with pytest.raises(WebSessionRequired):
+            await export_holiday_pay_list(_client(_statutory()), 2025, tmp_path)
+        with pytest.raises(WebSessionRequired):
+            await export_employee_salary_report(_client(_statutory()), 2025, tmp_path)
+
+    async def test_a_refusal_page_is_not_saved(self, tmp_path: Path):
+        with pytest.raises(ReportUnavailable):
+            await export_holiday_pay_list(
+                _web_client(_statutory(body=REFUSAL)), 2025, tmp_path
+            )
+
+        assert list(tmp_path.iterdir()) == []
