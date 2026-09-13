@@ -13,6 +13,7 @@ The scoping and paging facts asserted here were measured against a live ledger o
 from __future__ import annotations
 
 import datetime
+import json
 from pathlib import Path
 
 import httpx
@@ -22,6 +23,7 @@ from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
 from tripletex.endpoints.reports import (
     ReportUnavailable,
+    export_bank_reconciliation,
     export_employee_salary_report,
     export_holiday_pay_list,
     export_vat_return,
@@ -614,3 +616,121 @@ class TestPayrollReports:
             )
 
         assert list(tmp_path.iterdir()) == []
+
+
+#: What /v2/bank/reconciliation returns for a month that was reconciled.
+RECONCILIATION = {
+    "values": [{"id": 12199575, "isClosed": True,
+                "account": {"id": 102962878, "number": 1920}}],
+    "fullResultSize": 1,
+}
+PERIOD = {"value": {"id": 15547553, "start": "2026-01-01"}}
+
+
+def _bank(body: bytes = b"PK\x03\x04stub", reconciled: bool = True,
+          seen: list | None = None, bodies: list | None = None):
+    """Reconciliation lookup and period lookup as JSON; the export as a document."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request.url)
+        path = request.url.path
+        if path.startswith("/v2/ledger/accountingPeriod/"):
+            return httpx.Response(200, json=PERIOD)
+        if path == "/v2/bank/reconciliation":
+            return httpx.Response(
+                200, json=RECONCILIATION if reconciled else {"values": [], "fullResultSize": 0}
+            )
+        if "internal/export" in path:
+            if bodies is not None:
+                bodies.append(json.loads(request.content or b"{}"))
+            assert request.method == "PUT", f"expected PUT, got {request.method}"
+            return httpx.Response(200, content=body)
+        return httpx.Response(200, json={"values": [], "fullResultSize": 0})
+
+    return handler
+
+
+class TestBankReconciliationExport:
+    async def test_names_the_file_for_account_and_month(self, tmp_path: Path):
+        got = await export_bank_reconciliation(
+            _web_client(_bank()), 102962878, 15547553, tmp_path
+        )
+
+        assert got.name == "bankavstemming_1920_2026-01.xlsx"
+
+    async def test_resolves_the_reconciliation_id_itself(self, tmp_path: Path):
+        """The caller holds an account and a period; the internal reconciliation
+        id is not something it should have to carry."""
+        bodies: list[dict] = []
+        await export_bank_reconciliation(
+            _web_client(_bank(bodies=bodies)), 102962878, 15547553, tmp_path
+        )
+
+        assert bodies[0]["bankReconciliationId"] == 12199575
+        assert bodies[0]["accountId"] == 102962878
+
+    async def test_it_cannot_be_made_to_send_email(self, tmp_path: Path):
+        """The body carries `emailAddresses`, `actionType` and a `message`, so
+        the endpoint does more than download. The two fields that could select a
+        recipient are pinned to the download's inert values, and the `message`
+        seen in a captured request is never sent."""
+        bodies: list[dict] = []
+        await export_bank_reconciliation(
+            _web_client(_bank(bodies=bodies)), 102962878, 15547553, tmp_path
+        )
+
+        assert bodies[0]["actionType"] == "FileDownload"
+        assert bodies[0]["emailAddresses"] == []
+        assert "message" not in bodies[0]
+
+    async def test_an_unreconciled_month_is_distinguishable(self, tmp_path: Path):
+        """Two months were missing from the 2025 pack. A missing reconciliation
+        must be a named absence, not an empty or partial file."""
+        with pytest.raises(ReportUnavailable, match="no reconciliation"):
+            await export_bank_reconciliation(
+                _web_client(_bank(reconciled=False)), 102962878, 15547553, tmp_path
+            )
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_it_is_a_put_not_a_get(self, tmp_path: Path):
+        """The handler asserts the method; this pins that the export is reached
+        at all, so the assertion is not vacuous."""
+        seen: list[httpx.URL] = []
+        await export_bank_reconciliation(
+            _web_client(_bank(seen=seen)), 102962878, 15547553, tmp_path
+        )
+
+        assert [u.path for u in seen if "internal/export" in u.path] == [
+            "/v2/bank/reconciliation/internal/export/xlsx"
+        ]
+
+    async def test_this_route_returns_a_real_xlsx_zip(self, tmp_path: Path):
+        """Unlike the legacy /execute/ reports, whose `xls` is mso-HTML."""
+        got = await export_bank_reconciliation(
+            _web_client(_bank()), 102962878, 15547553, tmp_path
+        )
+
+        assert got.read_bytes().startswith(b"PK\x03\x04")
+
+        with pytest.raises(ReportUnavailable):
+            await export_bank_reconciliation(
+                _web_client(_bank(body=EXCEL_HTML)), 102962878, 15547553, tmp_path,
+                overwrite=True,
+            )
+
+    async def test_api_token_is_refused_up_front(self, tmp_path: Path):
+        with pytest.raises(WebSessionRequired):
+            await export_bank_reconciliation(
+                _client(_bank()), 102962878, 15547553, tmp_path
+            )
+
+    async def test_rerun_skips(self, tmp_path: Path):
+        seen: list[httpx.URL] = []
+        client = _web_client(_bank(seen=seen))
+
+        await export_bank_reconciliation(client, 102962878, 15547553, tmp_path)
+        await export_bank_reconciliation(client, 102962878, 15547553, tmp_path)
+
+        assert len([u for u in seen if "internal/export" in u.path]) == 1

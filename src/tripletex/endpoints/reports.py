@@ -196,6 +196,7 @@ async def _download_checked(
     params: dict[str, str],
     target: Path,
     expect: bytes,
+    json_body: dict | None = None,
 ) -> Path:
     """Download, then refuse anything that is not the document it claims to be.
 
@@ -216,7 +217,17 @@ async def _download_checked(
     the server meant to send; the bytes describe what arrived, and only the
     second is evidence.
     """
-    await client.download(path, params, target)
+    if json_body is None:
+        await client.download(path, params, target)
+    else:
+        # One route wants PUT with a body (the bank reconciliation export), which
+        # `download` cannot express. These documents are tens of kilobytes, so
+        # buffering is fine; the streaming path stays the default for the rest.
+        response = await client._request(
+            "PUT", path, params=params, json_body=json_body, for_json=False
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(response.content)
 
     head = target.read_bytes()[:1024]
     if head.startswith(expect):
@@ -736,4 +747,103 @@ async def export_employee_salary_report(
     return await _download_checked(
         client, "/execute/employeeWageReport", params, target,
         _PDF if fmt == "pdf" else _XLS_HTML,
+    )
+
+
+#: The bank reconciliation export body, minus the ids. **`actionType` and
+#: `emailAddresses` are fixed here and deliberately not parameters.**
+#:
+#: The endpoint carries `emailAddresses`, `actionType` and a `message`, so it
+#: plainly does more than download — a captured browser request sent a filled-in
+#: Norwegian reminder about missing vouchers, addressed to the company's
+#: bilagsmottak. Where that text comes from is **not known**: it is not visible
+#: in the reconciliation screen, so it may be another code path, an older one, or
+#: a server-side default echoed back. We did not try the sending path to find
+#: out, and nothing here should.
+#:
+#: What is certain is the shape. An export function must not be one keystroke
+#: from mailing third parties, so the two fields that could select a recipient
+#: are pinned to the inert values the download uses, and `message` is never sent.
+_BANK_RECONCILIATION_EXPORT = {
+    "pdfOrientation": "LANDSCAPE",
+    "type": "APPROVED",
+    "transactionsType": "CURRENT_MONTH",
+    "actionType": "FileDownload",
+    "emailAddresses": [],
+}
+
+
+async def export_bank_reconciliation(
+    client: TripletexClient,
+    account_id: int,
+    period_id: int,
+    dest_dir: Path | str,
+    fmt: str = "xls",
+    overwrite: bool = False,
+) -> Path:
+    """Automatisk bankavstemming for one account and one month. **Web session.**
+
+    PUT /v2/bank/reconciliation/internal/export/{pdf,xlsx} — the only report
+    here that is not a GET. The body carries the reconciliation to export;
+    `params` is empty.
+
+    Takes the `account_id` and `period_id` the caller already has from
+    `reconciliation.list_bank_accounts` and `.get_periods`, and resolves the
+    reconciliation itself — its internal id is not something a caller should
+    have to hold.
+
+    **A month that was never reconciled raises `ReportUnavailable`** rather than
+    producing a file. That is the case the audit pack exists to catch: two
+    months were missing from the 2025 pack and nobody noticed until the
+    reconciliation was assembled by hand.
+
+    Note `fmt="xls"` returns a real `.xlsx` zip here, unlike the legacy
+    `/execute/` reports — this route is `/v2` and spells the format `xlsx`.
+    """
+    _validate_format(fmt)
+    require_web_session(client.session, "The bank reconciliation export")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    found = await client.get_json(
+        "/v2/bank/reconciliation",
+        {
+            "accountingPeriodId": str(period_id),
+            "accountId": str(account_id),
+            "fields": "id,isClosed,account(id,number)",
+        },
+    )
+    rows = found.get("values") or []
+    if not rows:
+        raise ReportUnavailable(
+            f"Account {account_id} has no reconciliation for period {period_id}, "
+            f"so there is no document to export"
+        )
+    reconciliation_id = rows[0]["id"]
+    number = (rows[0].get("account") or {}).get("number") or account_id
+
+    period = await client.get_json(
+        f"/v2/ledger/accountingPeriod/{period_id}", {"fields": "id,start"}
+    )
+    start = (period.get("value") or {}).get("start", "")
+    month = start[:7] or str(period_id)
+
+    suffix = "pdf" if fmt == "pdf" else "xlsx"
+    target = dest_dir / f"bankavstemming_{number}_{month}.{suffix}"
+    if target.exists() and not overwrite:
+        logger.info("Skipping %s — already present", target.name)
+        return target
+
+    return await _download_checked(
+        client,
+        f"/v2/bank/reconciliation/internal/export/{suffix}",
+        {},
+        target,
+        _PDF if fmt == "pdf" else _XLSX,
+        json_body={
+            **_BANK_RECONCILIATION_EXPORT,
+            "bankReconciliationId": reconciliation_id,
+            "accountId": account_id,
+        },
     )
