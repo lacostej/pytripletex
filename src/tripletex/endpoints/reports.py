@@ -79,6 +79,13 @@ Every function here therefore takes a *directory* and derives the filename itsel
 from what the call already knows — account number, name, period and format —
 following `vouchers.backup_all_vouchers`, which does the same and skips files
 that already exist so a run resumes.
+
+**Three reports in the audit pack are deliberately absent, because Tripletex
+does not produce them:** the AGA Avstemmingsrapport, the Årsoppgave
+Innskuddspensjon (a pension provider's annual statement, which arrives as a
+document rather than being generated), and Merverdiavgift – Avstemming. They are
+the consuming tool's problem, not this library's. Decided 2026-09-13 — recorded
+here so the next reader does not go hunting for routes that do not exist.
 """
 
 from __future__ import annotations
