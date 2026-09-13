@@ -69,6 +69,19 @@ CSV_COLUMNS = (
 )
 
 
+class SalaryImportRejected(RuntimeError):
+    """Tripletex refused the CSV, and said why.
+
+    Distinct from a transport failure: the file reached Tripletex, was parsed,
+    and was rejected on its contents. The message is Tripletex's own and usually
+    names the offending row — worth showing to whoever produced the file rather
+    than wrapping in something vaguer.
+
+    Rejections arrive as a JSON-RPC `error` at HTTP 200, so nothing about the
+    status code distinguishes this from success.
+    """
+
+
 async def get_salary_draft(
     client: TripletexClient, transaction_id: int
 ) -> SalaryDraft:
@@ -194,14 +207,28 @@ async def import_salary_csv(
         extra_headers={"Content-type": "text/plain"},
         for_json=False,
     )
-    result = (response.json() or {}).get("result") or {}
+    payload = response.json() or {}
+
+    # A rejected import is a JSON-RPC *error*, not a result with validations on
+    # it, and it arrives at HTTP 200. Reading only `result` turns a perfectly
+    # explicit message — "Arbeidsforholdet er ikke knyttet mot en virksomhet.
+    # Linje 2: …", naming the offending row — into "validations=None".
+    error = payload.get("error") or {}
+    if error:
+        messages = error.get("generalMessages") or []
+        detail = "; ".join(messages).strip() or str(
+            error.get("endUserMessage") or error.get("msg") or error.get("codeName") or ""
+        ).strip('"')
+        raise SalaryImportRejected(detail or "Tripletex rejected the import, without saying why")
+
+    result = payload.get("result") or {}
 
     # The new draft's id arrives only inside a UI navigation instruction —
     # there is no field for it. Parse it out rather than making the caller do so.
     transaction_id = _transaction_id_from_forward(result.get("forward"))
     if transaction_id is None:
         raise RuntimeError(
-            "Salary import did not return a transaction id. "
+            "Salary import returned neither a transaction id nor an error. "
             f"validations={result.get('validations')} messages={result.get('messages')}"
         )
     logger.info("Salary CSV imported as draft transaction %s", transaction_id)

@@ -382,3 +382,72 @@ class TestDeleteSalaryDraft:
             await salary.delete_salary_draft(client, 7588616, force=True)
 
         assert not [x for x in seen if x[0] == "DELETE"]
+
+
+class TestImportRejection:
+    """A rejected import arrives as a JSON-RPC error at HTTP 200, carrying a
+    message that names the offending row. Reading only `result` threw that away
+    and reported `validations=None`, which says nothing to whoever has to fix
+    the file."""
+
+    def _client(self, payload):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/execute/uploadCentral":
+                return httpx.Response(200, json=[{
+                    "id": "1", "revision": "1", "name": "x.csv",
+                    "size": "1", "readableSize": "1 B", "uid": "0", "checksum": "abc"}])
+            return httpx.Response(200, json=payload)
+
+        client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        client._session = WebSession(cookies=httpx.Cookies(), context_id="1")
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE_URL
+        )
+        return client
+
+    #: Measured against a company whose employment is not linked to a virksomhet.
+    REAL_REJECTION = {"id": 1, "error": {
+        "msg": None, "code": 107, "codeName": "VALIDATION_ERROR",
+        "javaClass": "no.tripletex.common.exception.ValidationException",
+        "endUserMessage": '"Arbeidsforholdet er ikke knyttet mot en virksomhet. Linje 2: …"',
+        "generalMessages": [
+            "Arbeidsforholdet er ikke knyttet mot en virksomhet. Linje 2: 2026;9;1;2000;x;1;1.00;;;"
+        ],
+        "propertyMessages": {}, "suppressed": []}}
+
+    async def _import(self, payload, tmp_path):
+        csv = tmp_path / "x.csv"
+        csv.write_text("YEAR,MONTH\n2026,9\n")
+        client = self._client(payload)
+        staged = await salary.upload_import_file(client, csv)
+        return await salary.import_salary_csv(
+            client, staged, voucher_date=datetime.date(2026, 9, 13)
+        )
+
+    async def test_the_reason_reaches_the_caller(self, tmp_path):
+        with pytest.raises(salary.SalaryImportRejected) as excinfo:
+            await self._import(self.REAL_REJECTION, tmp_path)
+
+        assert "ikke knyttet mot en virksomhet" in str(excinfo.value)
+        assert "Linje 2" in str(excinfo.value), "the offending row must survive"
+
+    async def test_a_rejection_is_not_a_transport_error(self, tmp_path):
+        """It arrives at HTTP 200, so nothing about the status distinguishes it
+        from success — and it is not an httpx error either."""
+        with pytest.raises(salary.SalaryImportRejected):
+            await self._import(self.REAL_REJECTION, tmp_path)
+
+    async def test_an_error_without_messages_still_raises(self, tmp_path):
+        bare = {"id": 1, "error": {"codeName": "VALIDATION_ERROR", "generalMessages": []}}
+
+        with pytest.raises(salary.SalaryImportRejected, match="VALIDATION_ERROR"):
+            await self._import(bare, tmp_path)
+
+    async def test_a_success_still_returns_the_id(self, tmp_path):
+        # `forward` is a JSON *string* holding a list of UI navigation actions —
+        # the id has no field of its own.
+        ok = {"id": 1, "result": {"forward": json.dumps(
+            [{"_action": "navigateDirect",
+              "url": "/execute/salary?salaryTransactionId=7588616"}])}}
+
+        assert await self._import(ok, tmp_path) == 7588616
