@@ -294,3 +294,91 @@ class TestAuth:
     async def test_importing_needs_a_web_session(self):
         with pytest.raises(WebSessionRequired):
             await salary.upload_import_file(_api(_value({})), __file__)
+
+
+class TestDeleteSalaryDraft:
+    """Discarding is what makes an import reversible, and therefore what makes
+    testing one against a real company defensible at all."""
+
+    def _client(self, handler):
+        client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        client._session = WebSession(cookies=httpx.Cookies(), context_id="1")
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE_URL
+        )
+        return client
+
+    def _serving(self, committed: bool, seen: list | None = None):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if seen is not None:
+                seen.append((request.method, request.url.path))
+            if request.method == "DELETE":
+                return httpx.Response(200, json={})
+            return httpx.Response(200, json={"value": {
+                "id": 7588616,
+                "completed": committed,
+                "voucher": {"id": 99} if committed else None,
+                "displayName": "Salary voucher 14-2026" if committed
+                               else "Salary payment (under process)",
+            }})
+
+        return handler
+
+    async def test_deletes_a_draft(self):
+        seen: list[tuple[str, str]] = []
+
+        await salary.delete_salary_draft(self._client(self._serving(False, seen)), 7588616)
+
+        assert ("DELETE", "/v2/tsk/salaryv2/transaction/7588616") in seen
+
+    async def test_refuses_a_committed_run(self):
+        """The same route deletes both, and on a committed run that reverses the
+        voucher and reissues payslips for everyone."""
+        seen: list[tuple[str, str]] = []
+
+        with pytest.raises(ValueError, match="already committed"):
+            await salary.delete_salary_draft(self._client(self._serving(True, seen)), 7588616)
+
+        assert not [s for s in seen if s[0] == "DELETE"]
+
+    async def test_force_deletes_a_committed_run_without_checking(self):
+        seen: list[tuple[str, str]] = []
+
+        await salary.delete_salary_draft(
+            self._client(self._serving(True, seen)), 7588616, force=True
+        )
+
+        assert [s[0] for s in seen] == ["DELETE"]
+
+    async def test_force_is_keyword_only(self):
+        """So it cannot be passed by accident as a positional."""
+        import inspect
+
+        p = inspect.signature(salary.delete_salary_draft).parameters["force"]
+        assert p.kind is inspect.Parameter.KEYWORD_ONLY
+
+    async def test_api_token_is_refused(self):
+        client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        client._session = ApiSession(session_token="tok", company_id=0)
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(self._serving(False)), base_url=BASE_URL
+        )
+
+        with pytest.raises(WebSessionRequired):
+            await salary.delete_salary_draft(client, 7588616)
+
+    async def test_api_token_is_refused_even_with_force(self):
+        """`force` skips the draft lookup, so this function's own session check
+        is the only thing between a token and a DELETE. Without it the request
+        goes out and the failure is whatever Tripletex happens to answer."""
+        seen: list[tuple[str, str]] = []
+        client = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        client._session = ApiSession(session_token="tok", company_id=0)
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(self._serving(False, seen)), base_url=BASE_URL
+        )
+
+        with pytest.raises(WebSessionRequired):
+            await salary.delete_salary_draft(client, 7588616, force=True)
+
+        assert not [x for x in seen if x[0] == "DELETE"]

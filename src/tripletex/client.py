@@ -265,7 +265,7 @@ class TripletexClient:
         headers = self.session.request_headers(str(url), for_json=for_json)
         if method in ("POST", "PUT") and for_json:
             headers["Content-Type"] = "application/json"
-        if method in ("POST", "PUT") and isinstance(self.session, WebSession):
+        if method in ("POST", "PUT", "DELETE") and isinstance(self.session, WebSession):
             headers["Origin"] = self.config.base_url
         if extra_headers:
             headers.update(extra_headers)

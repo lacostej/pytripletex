@@ -229,6 +229,48 @@ def _transaction_id_from_forward(forward: object) -> int | None:
     return None
 
 
+async def delete_salary_draft(
+    client: TripletexClient,
+    transaction_id: int,
+    *,
+    force: bool = False,
+) -> None:
+    """Discard a salary draft. **Web session only.** Returns nothing.
+
+    DELETE /v2/tsk/salaryv2/transaction/{id}.
+
+    This is what makes importing a draft a reversible act, and therefore what
+    makes it safe to test an import against a real company at all: a draft you
+    cannot abandon is a one-way door, and it shows up in the UI as "Salary
+    payment (under process)" where whoever runs payroll will find it.
+
+    **A committed run is refused unless `force`.** The same route deletes both,
+    and on a committed run that means reversing a booked voucher and reissuing
+    payslips for everybody — the exact outcome this module exists to avoid. The
+    state is checked first rather than trusted to the caller, because the id of
+    a draft and the id of a booked run look identical.
+
+    `force` exists because deleting a committed run is occasionally the right
+    answer, and a library that makes it impossible invites someone to do it by
+    hand in a worse way. It should be a deliberate keystroke, not a default.
+    """
+    require_web_session(client.session, "Salary drafts")
+
+    if not force:
+        draft = await get_salary_draft(client, transaction_id)
+        if draft.is_committed:
+            raise ValueError(
+                f"Salary transaction {transaction_id} is already committed"
+                f"{f' as voucher {draft.voucher}' if draft.voucher else ''}. "
+                f"Deleting it reverses the voucher and reissues payslips for "
+                f"every employee on the run. Pass force=True if that is truly "
+                f"what you want."
+            )
+
+    await client._request("DELETE", f"{_V2}/transaction/{transaction_id}", for_json=False)
+    logger.info("Deleted salary draft %s", transaction_id)
+
+
 async def add_calculated_specs(
     client: TripletexClient,
     transaction_id: int,
