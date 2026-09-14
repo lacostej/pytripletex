@@ -80,7 +80,7 @@ class TripletexClient:
             self._http = httpx.AsyncClient(
                 base_url=self.config.base_url,
                 follow_redirects=True,
-                timeout=30.0,
+                timeout=self.config.timeout,
             )
         return self._http
 
@@ -341,8 +341,14 @@ class TripletexClient:
         path: str,
         params: dict[str, Any],
         dest: Path,
+        timeout: float | None = None,
     ) -> Path:
-        """Download binary content (PDF/image) to a file."""
+        """Download binary content (PDF/image) to a file.
+
+        `timeout` overrides `config.timeout` for this call alone. Pass it for
+        routes that build their response synchronously — a SAF-T export or a
+        full-year report is not a request whose duration depends on us.
+        """
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         url = httpx.URL(path) if path.startswith("http") else self.http.base_url.join(path)
@@ -356,13 +362,30 @@ class TripletexClient:
         # Paced like any other request — voucher backup downloads documents in a
         # loop, which is exactly the workload that exhausts the quota. Not
         # retried: the body is consumed lazily, so there is nothing to replay.
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+
         await self.limiter.acquire()
-        async with self.http.stream("GET", path, params=params, **kwargs) as response:
-            self.limiter.observe(response.headers)
-            response.raise_for_status()
-            with open(dest, "wb") as f:
-                async for chunk in response.aiter_bytes():
-                    f.write(chunk)
+        try:
+            async with self.http.stream("GET", path, params=params, **kwargs) as response:
+                self.limiter.observe(response.headers)
+                response.raise_for_status()
+                with open(dest, "wb") as f:
+                    async for chunk in response.aiter_bytes():
+                        f.write(chunk)
+        except httpx.TimeoutException as exc:
+            # A bare ReadTimeout names neither the route nor the limit, so a
+            # caller cannot tell a slow export from a dead network, nor find the
+            # knob. Partial files are removed: a truncated download that stays on
+            # disk is indistinguishable from a complete one to the next run.
+            dest.unlink(missing_ok=True)
+            waited = timeout if timeout is not None else self.config.timeout
+            raise TimeoutError(
+                f"{path} did not respond within {waited:g}s. Some Tripletex "
+                f"routes build their response synchronously and are slower on a "
+                f"cold cache — raise `timeout` on this call, or `timeout` in the "
+                f"config for all of them."
+            ) from exc
         return dest
 
     # --- Multi-company (web session only) ---

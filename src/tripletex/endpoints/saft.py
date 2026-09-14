@@ -34,7 +34,9 @@ version the recipient requires.
 
 It is also synchronous and expands considerably: one measured year of a small
 company was 449 KB compressed and 11.4 MB of XML, and a larger company scales
-with voucher volume. Hence streaming to disk and a generous timeout.
+with voucher volume. Hence streaming to disk, and `SAFT_EXPORT_TIMEOUT` rather
+than the client default — the server builds the year while the request is
+open, and measured runs of one company ranged 8.4s to 20.3s for the same call.
 """
 
 from __future__ import annotations
@@ -56,6 +58,14 @@ logger = logging.getLogger(__name__)
 #: What the endpoint emits when `version` is omitted, measured 2026-09-11. Not a
 #: promise from Tripletex — read it off the file with `audit_file_version()`
 #: rather than trusting this constant.
+#: Seconds to allow one export. Tripletex builds the whole year synchronously,
+#: so the duration is theirs, not ours. Measured on one company's full year,
+#: same call repeated: 8.4s, 20.3s, 9.7s, 10.1s — the slow one a year not
+#: recently exported. The client default was 30s, which a consumer of this
+#: library exceeded on a larger company and received a bare ReadTimeout for.
+#: Five minutes is not an expectation, it is headroom.
+SAFT_EXPORT_TIMEOUT = 300.0
+
 DEFAULT_AUDIT_FILE_VERSION = "1.20"
 
 #: Versions both routes offer. Requested as "1.2"/"1.3"; reported inside the file
@@ -107,7 +117,10 @@ async def export_saft(
 
     logger.info("Exporting SAF-T %s for %s", version, year)
     await client.download(
-        "/v2/saft/exportSAFT", {"year": str(year), "version": version}, target
+        "/v2/saft/exportSAFT",
+        {"year": str(year), "version": version},
+        target,
+        timeout=SAFT_EXPORT_TIMEOUT,
     )
 
     if not extract:

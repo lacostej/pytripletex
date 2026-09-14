@@ -29,6 +29,17 @@ class TripletexConfig(BaseModel):
     # id and not a name — companies get renamed, ids do not.
     company_id: int | None = None
 
+    # How long to wait on a single request, in seconds. Generous by HTTP
+    # standards because several Tripletex routes generate their response
+    # synchronously: a SAF-T export builds the whole year on demand, and
+    # measured runs of one company ranged 8.4s to 20.3s for the same call —
+    # the slow ones being years not recently exported. 30s left too thin a
+    # margin and produced a bare ReadTimeout that told the caller nothing.
+    #
+    # Individual calls that are known to be slow raise this themselves; this is
+    # the floor for everything else.
+    timeout: float = 60.0
+
     # Manual session overrides (skip login, use browser cookies)
     cookie: str | None = None
     csrf_token: str | None = None

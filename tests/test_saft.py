@@ -292,3 +292,91 @@ class TestWebExport:
                 _client(), datetime.date(2026, 1, 1), datetime.date(2026, 3, 31),
                 tmp_path,
             )
+
+
+class TestExportTimeout:
+    """Tripletex builds a SAF-T year synchronously, so the duration is theirs.
+    Measured on one company's full year, same call repeated: 8.4s, 20.3s, 9.7s,
+    10.1s. The 30s client default left too thin a margin, and a consumer of this
+    library exceeded it on a larger company — receiving a bare ReadTimeout that
+    named neither the route nor the limit.
+    """
+
+    async def test_the_export_asks_for_more_than_the_client_default(self, tmp_path):
+        from tripletex.config import TripletexConfig
+        from tripletex.endpoints.saft import SAFT_EXPORT_TIMEOUT
+
+        assert SAFT_EXPORT_TIMEOUT > TripletexConfig().timeout
+
+    async def test_the_longer_timeout_reaches_the_request(self, tmp_path):
+        seen: list[float | None] = []
+        client = _client()
+
+        async def capture(path, params, dest, timeout=None):
+            seen.append(timeout)
+            dest.write_bytes(b"PK\x03\x04stub")
+            return dest
+
+        client.download = capture
+        await export_saft(client, 2025, tmp_path)
+
+        from tripletex.endpoints.saft import SAFT_EXPORT_TIMEOUT
+
+        assert seen == [SAFT_EXPORT_TIMEOUT], "the export must not inherit the default"
+
+    async def test_a_timeout_names_the_route_and_the_limit(self, tmp_path):
+        """A bare ReadTimeout tells the caller nothing: not which call was slow,
+        not what the limit was, not where the knob is."""
+        import httpx
+
+        from tripletex.client import TripletexClient
+        from tripletex.config import TripletexConfig
+
+        def die(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("timed out", request=request)
+
+        c = TripletexClient(TripletexConfig(base_url="https://tripletex.no", timeout=7.0))
+        c._session = ApiSession(session_token="tok", company_id=0)
+        c._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(die), base_url="https://tripletex.no"
+        )
+        target = tmp_path / "out.zip"
+
+        with pytest.raises(TimeoutError) as excinfo:
+            await c.download("/v2/saft/exportSAFT", {"year": "2025"}, target)
+
+        message = str(excinfo.value)
+        assert "/v2/saft/exportSAFT" in message, "must name the route"
+        assert "7s" in message, "must name the limit it waited"
+        assert "timeout" in message, "must point at the knob"
+
+    async def test_a_timed_out_download_leaves_no_partial_file(self, tmp_path):
+        """A truncated file on disk is indistinguishable from a complete one to
+        the next run, which would skip it as already fetched."""
+        import httpx
+
+        from tripletex.client import TripletexClient
+        from tripletex.config import TripletexConfig
+
+        def stall_midway(request: httpx.Request) -> httpx.Response:
+            # Bytes first, *then* the timeout — the case that actually leaves a
+            # file behind. A mock that fails before the first chunk never
+            # creates one, so the assertion below would hold with no cleanup at
+            # all and prove nothing.
+            async def body():
+                yield b"PK\x03\x04" + b"x" * 4096
+                raise httpx.ReadTimeout("timed out", request=request)
+
+            return httpx.Response(200, content=body())
+
+        c = TripletexClient(TripletexConfig(base_url="https://tripletex.no"))
+        c._session = ApiSession(session_token="tok", company_id=0)
+        c._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(stall_midway), base_url="https://tripletex.no"
+        )
+        target = tmp_path / "out.zip"
+
+        with pytest.raises(TimeoutError):
+            await c.download("/v2/saft/exportSAFT", {"year": "2025"}, target)
+
+        assert not target.exists(), "a truncated download must not survive"
