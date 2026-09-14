@@ -64,6 +64,38 @@ class Reconciliation(BaseModel):
 # --- Payments ---
 
 
+class ArchiveEntry(BaseModel):
+    """One row of the company document archive — a folder or a document.
+
+    Scraped from the archive page rather than read from an API, because the
+    folder archive has no API: see `endpoints.archive`. The fields here are what
+    the page actually carries, not what one might wish for.
+
+    `revision` matters more than it looks. Every write action on an entry —
+    delete, move — must send the revision it saw, and it increments on each
+    change. The listing is the only place to get it, so a caller that wants to
+    modify anything must list first.
+    """
+
+    id: int
+    #: Optimistic-concurrency token. Increments on every change to the entry.
+    revision: int
+    name: str
+    is_folder: bool
+
+    #: Files only, and it is the *archive* date a human chose on upload, not the
+    #: upload timestamp. Folders have none.
+    archive_date: Optional[datetime.date] = None
+
+    #: As the page renders it — "2,3 MB", Norwegian decimal comma. Deliberately
+    #: not parsed to bytes: `GET /v2/document/{id}` returns an exact `size`, and
+    #: guessing at a rounded display string when the real number is one call
+    #: away would be inventing precision.
+    size_text: Optional[str] = None
+
+    model_config = {"populate_by_name": True}
+
+
 class Payment(BaseModel):
     voucher: str
     payment_account: str

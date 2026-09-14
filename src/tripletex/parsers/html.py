@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from bs4 import BeautifulSoup
 
 from tripletex.models import (
+    ArchiveEntry,
     CompanyWageSettings,
     EmployeeAccess,
     Employment,
@@ -313,3 +314,99 @@ def extract_voucher_document_ids(html: str) -> list[int]:
             doc_ids.append(int(m.group(1)))
 
     return doc_ids
+
+
+class ArchiveListingUnparseable(RuntimeError):
+    """The archive page did not look the way the parser expects.
+
+    Raised rather than returning an empty list, because those two outcomes are
+    indistinguishable to a caller and only one of them is safe. An audit pack
+    that silently omits every document because Tripletex changed a CSS class is
+    worse than one that fails to build.
+    """
+
+
+def parse_archive_listing(html: str) -> list[ArchiveEntry]:
+    """Rows of the document archive page — folders and documents.
+
+    The company archive has no API (see `endpoints.archive`), so this reads the
+    `/execute/archive?act=content` fragment. Each row carries what the write
+    actions need in hidden inputs:
+
+        <input name="documentsAndFolders[0].id"       value="818231093">
+        <input name="documentsAndFolders[0].revision" value="1">
+
+    and distinguishes its kind by icon class — `archive-icon__folder` against
+    `archive-icon__file` — rather than by anything semantic.
+
+    **Raises `ArchiveListingUnparseable` if the page has rows it cannot read.**
+    Scraping is brittle by nature: Tripletex can change this markup without
+    notice and without a version bump, and there is no schema to validate
+    against. The one thing this must never do is return `[]` for a page it
+    failed to understand.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    rows = soup.select("tr")
+    entries: list[ArchiveEntry] = []
+    unreadable = 0
+
+    for row in rows:
+        id_input = row.select_one('input[name$=".id"]')
+        if id_input is None:
+            continue  # header, toolbar, or a row that carries no entry
+        rev_input = row.select_one('input[name$=".revision"]')
+        icon = row.select_one("i.archive-icon__folder, i.archive-icon__file")
+        label = row.select_one("span.text--with-icon a")
+
+        if rev_input is None or icon is None or label is None:
+            unreadable += 1
+            continue
+
+        cells = [c.get_text(" ", strip=True) for c in row.select("td")]
+        entries.append(
+            ArchiveEntry(
+                id=int(id_input.get("value")),
+                revision=int(rev_input.get("value")),
+                name=label.get_text(strip=True),
+                is_folder="archive-icon__folder" in (icon.get("class") or []),
+                archive_date=_first_iso_date(cells),
+                size_text=_first_size(cells),
+            )
+        )
+
+    if unreadable:
+        raise ArchiveListingUnparseable(
+            f"{unreadable} archive row(s) carried an id but no readable "
+            f"name/revision/kind — the page markup has probably changed. "
+            f"Read {len(entries)} row(s) successfully."
+        )
+    # Keyed on the hidden inputs an entry row carries, not on `documentsAndFolders`
+    # (which a rename would defeat) and not on merely having a <td> (which the
+    # page's title and totals rows also have — an *empty* folder is two such rows
+    # and no entries, and must stay an empty list rather than an error).
+    candidate_rows = [r for r in rows if r.select_one('input[type="hidden"]')]
+    if candidate_rows and not entries:
+        raise ArchiveListingUnparseable(
+            f"The archive page has {len(candidate_rows)} entry-shaped row(s) but none "
+            f"could be parsed — the markup has changed. Returning an empty archive "
+            f"here would be indistinguishable from an empty folder."
+        )
+    return entries
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_SIZE = re.compile(r"^[\d\s,.]+\s?(?:B|KB|MB|GB)$", re.I)
+
+
+def _first_iso_date(cells: list[str]) -> date | None:
+    for c in cells:
+        if _ISO_DATE.match(c.strip()):
+            return date.fromisoformat(c.strip())
+    return None
+
+
+def _first_size(cells: list[str]) -> str | None:
+    for c in cells:
+        if _SIZE.match(c.strip()):
+            return c.strip()
+    return None
