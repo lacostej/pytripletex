@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -82,6 +82,53 @@ async def get_periods(
             "startTo": start_to.isoformat(),
         },
     )
+    return [AccountingPeriod.model_validate(p) for p in data.get("values", [])]
+
+
+async def periods_covering(
+    client: TripletexClient,
+    date_from: date,
+    date_to: date,
+) -> list[AccountingPeriod]:
+    """Accounting periods **overlapping** the range, not merely starting in it.
+
+    `get_periods` is a faithful wrapper over `startFrom`/`startTo`, and those
+    filter on the period's *start* date — which is what the specification says
+    they do, and rarely what a caller means. It fails silently two ways,
+    measured 2026-09-17:
+
+        2026-07-01..2026-09-30  ->  3 periods
+        2026-07-15..2026-09-30  ->  2 periods   July is gone
+        2026-07-15..2026-07-20  ->  0 periods   a week inside one month
+
+    The last is the dangerous one: a range wholly inside a period matches no
+    period at all, and a caller reading "no periods" as "nothing to report" says
+    a confident nothing about books it never opened. Any range computed as
+    `today - N days` lands mid-month and loses its oldest period this way.
+
+    Overlap is expressible directly, because the endpoint also filters on the
+    period's *end*: a period overlaps [from, to] when `end > from` and
+    `start <= to`. Both bounds are documented "to and excluding", hence the two
+    `+ 1 day` conversions — `startTo=2026-08-01` excludes the period starting
+    that very day, verified against the live endpoint.
+
+    This is not an API gap. The parameters do exactly what they are documented
+    to do; reaching for the pair whose name matched first is the mistake.
+    """
+    return await get_periods_raw(
+        client,
+        endFrom=(date_from + timedelta(days=1)).isoformat(),
+        startTo=(date_to + timedelta(days=1)).isoformat(),
+    )
+
+
+async def get_periods_raw(client: TripletexClient, **params: str) -> list[AccountingPeriod]:
+    """`GET /v2/ledger/accountingPeriod` with arbitrary filters.
+
+    Every filter it accepts is a half-open range — `numberFrom`/`numberTo`,
+    `startFrom`/`startTo`, `endFrom`/`endTo` — with the `*To` bound excluding.
+    """
+    data = await client.get_json("/v2/ledger/accountingPeriod", params=dict(params))
     return [AccountingPeriod.model_validate(p) for p in data.get("values", [])]
 
 
@@ -248,7 +295,7 @@ async def get_unreconciled_transactions(
 
     results: list[tuple[BankAccount, list[BankTransaction]]] = []
 
-    periods = await get_periods(client, start_from, start_to)
+    periods = await periods_covering(client, start_from, start_to)
     if not periods:
         return results
 

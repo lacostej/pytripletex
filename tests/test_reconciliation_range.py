@@ -19,7 +19,10 @@ import pytest
 
 from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
-from tripletex.endpoints.reconciliation import get_unreconciled_transactions
+from tripletex.endpoints.reconciliation import (
+    get_unreconciled_transactions,
+    periods_covering,
+)
 from tripletex.session import ApiSession
 
 BASE_URL = "https://tripletex.no"
@@ -44,6 +47,21 @@ BY_PERIOD = {
 }
 
 
+def _filter_periods(params) -> list[dict]:
+    """The endpoint's own filter semantics, so the mock cannot be kinder than
+    the API. Every bound is half-open: `*From` includes, `*To` excludes."""
+    rows = PERIODS
+    if "startFrom" in params:
+        rows = [p for p in rows if p["start"] >= params["startFrom"]]
+    if "startTo" in params:
+        rows = [p for p in rows if p["start"] < params["startTo"]]
+    if "endFrom" in params:
+        rows = [p for p in rows if p["end"] >= params["endFrom"]]
+    if "endTo" in params:
+        rows = [p for p in rows if p["end"] < params["endTo"]]
+    return rows
+
+
 def _txn(i: int) -> dict:
     return {"id": i, "postedDate": f"2026-07-{(i % 28) + 1:02d}",
             "amountCurrency": 100 + i, "description": f"txn {i}"}
@@ -60,7 +78,11 @@ def _client(seen: list | None = None, approved: set[int] | None = None):
         if path == "/v2/ledger/account":
             return httpx.Response(200, json={"values": [ACCOUNT], "fullResultSize": 1})
         if path == "/v2/ledger/accountingPeriod":
-            return httpx.Response(200, json={"values": PERIODS, "fullResultSize": 3})
+            # Filters on the period's *start* date, as the real endpoint does.
+            # A mock that ignores the parameters cannot show the bug the
+            # parameters cause.
+            rows = _filter_periods(request.url.params)
+            return httpx.Response(200, json={"values": rows, "fullResultSize": len(rows)})
         if path == "/v2/bank/reconciliation/match":
             return httpx.Response(200, json={"values": [
                 {"id": 1, "transactions": [{"id": i} for i in sorted(approved)],
@@ -141,6 +163,26 @@ class TestSweepsEveryPeriod:
         finally:
             BY_PERIOD[702] = [3, 4, 5, 6]
 
+    async def test_a_mid_month_range_still_sweeps_its_first_period(self):
+        """`collect()` computes `today - 31*months`, which lands mid-month. With
+        a start-date filter the oldest period silently drops out — so the sweep
+        must ask for periods that *overlap*, not periods that start inside."""
+        ((_, txns),) = await get_unreconciled_transactions(
+            _client(), datetime.date(2026, 7, 15), SEP_END
+        )
+
+        assert 1 in {t.id for t in txns}, "July's transactions must survive"
+        assert len(txns) == 12
+
+    async def test_a_range_inside_a_single_period_is_not_empty(self):
+        """A week in July matches no period *start*, so the old behaviour
+        returned nothing — which a monitor reads as 'nothing outstanding'."""
+        results = await get_unreconciled_transactions(
+            _client(), datetime.date(2026, 7, 15), datetime.date(2026, 7, 20)
+        )
+
+        assert results, "a week inside July must still find July"
+
     async def test_no_periods_is_empty_not_an_error(self):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/v2/ledger/account":
@@ -154,3 +196,72 @@ class TestSweepsEveryPeriod:
         )
 
         assert await get_unreconciled_transactions(c, JUL, SEP_END) == []
+
+
+class TestPeriodsCovering:
+    """`get_periods` filters on the period's *start* date, which is rarely what
+    a caller means and fails silently two ways."""
+
+    def _periods_client(self, seen: list | None = None):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v2/ledger/accountingPeriod":
+                if seen is not None:
+                    seen.append(dict(request.url.params))
+                rows = _filter_periods(request.url.params)
+                return httpx.Response(200, json={"values": rows, "fullResultSize": len(rows)})
+            return httpx.Response(200, json={"values": [], "fullResultSize": 0})
+
+        c = TripletexClient(TripletexConfig(base_url=BASE_URL))
+        c._session = ApiSession(session_token="tok", company_id=0)
+        c._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE_URL
+        )
+        return c
+
+    async def test_a_mid_month_start_keeps_its_own_period(self):
+        """A range computed as `today - N days` lands mid-month. Filtering on
+        the start date drops the period that range begins inside."""
+        got = await periods_covering(
+            self._periods_client(), datetime.date(2026, 7, 15), datetime.date(2026, 9, 30)
+        )
+
+        assert [p.id for p in got] == [701, 702, 703]
+
+    async def test_a_range_inside_one_period_finds_that_period(self):
+        """The dangerous case: no period *starts* in this week, so the filtered
+        query returns nothing, and nothing reads as "nothing outstanding"."""
+        got = await periods_covering(
+            self._periods_client(), datetime.date(2026, 7, 15), datetime.date(2026, 7, 20)
+        )
+
+        assert [p.id for p in got] == [701]
+
+    async def test_overlap_is_asked_of_the_server_not_filtered_locally(self):
+        """`endFrom`/`startTo` expresses overlap exactly, so this is one query
+        with no local filtering and no guess at how long a period can be."""
+        seen: list[dict] = []
+
+        await periods_covering(
+            self._periods_client(seen), datetime.date(2026, 7, 15), datetime.date(2026, 7, 20)
+        )
+
+        assert len(seen) == 1
+        assert seen[0]["endFrom"] == "2026-07-16", "period must end after the range starts"
+        assert seen[0]["startTo"] == "2026-07-21", "'to' excludes, so +1 day"
+        assert "startFrom" not in seen[0], "filtering on start is the bug"
+
+    async def test_periods_after_the_range_are_excluded(self):
+        got = await periods_covering(
+            self._periods_client(), datetime.date(2026, 7, 1), datetime.date(2026, 7, 31)
+        )
+
+        assert [p.id for p in got] == [701]
+
+    async def test_the_end_date_is_treated_as_exclusive(self):
+        """A period reads 2026-07-01..2026-08-01. A range starting exactly on
+        2026-08-01 is in August, not July."""
+        got = await periods_covering(
+            self._periods_client(), datetime.date(2026, 8, 1), datetime.date(2026, 8, 15)
+        )
+
+        assert [p.id for p in got] == [702]
