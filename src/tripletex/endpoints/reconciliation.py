@@ -212,9 +212,25 @@ async def get_unreconciled_transactions(
     start_to: date,
     enrich: Enrichment | str | None = None,
 ) -> list[tuple[BankAccount, list[BankTransaction]]]:
-    """Get all unreconciled transactions across all bank accounts for a date range.
+    """Unreconciled transactions per bank account, across **every** accounting
+    period the range covers.
 
-    Returns list of (account, unreconciled_transactions) tuples.
+    Returns list of (account, unreconciled_transactions) tuples, one per account
+    that has any, with the transactions of all periods merged and ordered by
+    posting date.
+
+    **This swept only the first period until 2026-09-17.** Reconciliation is
+    per accounting period, so a three-month range resolves to three periods, and
+    taking `periods[0]` answered for July while silently dropping August and
+    September. The symptom a consumer reported is the giveaway for this class of
+    bug: *widening* the window returned **fewer** rows — 17 over one month
+    against 6 over three — because the first period of the wider range was a
+    quieter month. A caller asking for a date range means all of it.
+
+    **Cost is one reconciliation lookup per account per period**, plus one
+    approved-match lookup for each reconciliation that exists. A quarter over six
+    bank accounts is around 36 requests, against 12 before. That is the honest
+    price of the correct answer; narrow the range rather than the sweep.
 
     `enrich` controls whether `BankTransaction.details` is filled in, which costs
     one extra request per unmatched transaction. It defaults to
@@ -236,26 +252,35 @@ async def get_unreconciled_transactions(
     if not periods:
         return results
 
-    period_id = periods[0].id
-
     for account in accounts:
-        reconciliation = await get_reconciliation(client, period_id, account.id)
-        if reconciliation is None:
+        # Merged across periods, keyed by transaction id. A transaction belongs
+        # to one period, but deduplicating costs nothing and means an overlapping
+        # or repeated period cannot double-count.
+        found: dict[int, BankTransaction] = {}
+
+        for period in periods:
+            reconciliation = await get_reconciliation(client, period.id, account.id)
+            if reconciliation is None:
+                continue
+
+            approved_ids = await get_approved_match_transaction_ids(
+                client, reconciliation.id
+            )
+            for txn in reconciliation.transactions:
+                if txn.id not in approved_ids:
+                    found.setdefault(txn.id, txn)
+
+        if not found:
             continue
 
-        approved_ids = await get_approved_match_transaction_ids(
-            client, reconciliation.id
+        unreconciled = sorted(
+            found.values(), key=lambda t: (t.posted_date or date.min, t.id)
         )
-
-        unreconciled = [
-            t for t in reconciliation.transactions if t.id not in approved_ids
-        ]
 
         if strategy is Enrichment.ALL:
             for txn in unreconciled:
                 txn.details = detail_text(await get_transaction_detail(client, txn.id))
 
-        if unreconciled:
-            results.append((account, unreconciled))
+        results.append((account, unreconciled))
 
     return results
