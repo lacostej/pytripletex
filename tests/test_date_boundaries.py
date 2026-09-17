@@ -22,12 +22,13 @@ import pytest
 from tripletex.client import TripletexClient
 from tripletex.config import TripletexConfig
 from tripletex.endpoints._dates import exclusive_end
-from tripletex.endpoints.invoices import list_reminders
+from tripletex.endpoints.invoices import list_invoices, list_reminders
 from tripletex.endpoints.ledger import (
     list_close_groups,
     list_postings,
     list_vouchers_with_postings,
 )
+from tripletex.endpoints.orders import list_orders
 from tripletex.endpoints.vouchers import (
     list_non_posted_vouchers,
     list_reception_vouchers,
@@ -65,6 +66,15 @@ RANGED = [
     pytest.param(list_non_posted_vouchers, id="vouchers.list_non_posted_vouchers"),
     pytest.param(list_reception_vouchers, id="vouchers.list_reception_vouchers"),
     pytest.param(list_reminders, id="invoices.list_reminders"),
+]
+
+#: These two take differently-named parameters, so they cannot ride the sweep
+#: above — which is exactly why they were the last to be fixed. A guard that
+#: only covers the calls sharing one spelling misses the ones that do not.
+DIFFERENTLY_NAMED = [
+    pytest.param(list_invoices, "invoiceDateFrom", "invoiceDateTo",
+                 id="invoices.list_invoices"),
+    pytest.param(list_orders, "orderDateFrom", "orderDateTo", id="orders.list_orders"),
 ]
 
 
@@ -110,3 +120,40 @@ class TestExclusiveEnd:
 
         assert exclusive_end(day) != day.isoformat()
         assert exclusive_end(day) == "2026-06-06"
+
+
+class TestDifferentlyNamedRanges:
+    """`/v2/invoice` and `/v2/order` spell their filter differently, and were the
+    only date-ranged calls here that passed `date_to` through unconverted.
+
+    Measured on one company's 2025 before the fix: `invoiceDateTo=2025-12-31`
+    returned 229 invoices with the latest dated 17 December, against 235 and
+    31 December when asked for the day after. Four orders were lost the same way.
+    """
+
+    @pytest.mark.parametrize("call,from_param,to_param", DIFFERENTLY_NAMED)
+    async def test_the_end_date_is_converted(self, call, from_param, to_param):
+        seen: list[httpx.URL] = []
+
+        await call(_client(seen), *H1)
+
+        assert seen[0].params[from_param] == "2026-01-01"
+        assert seen[0].params[to_param] == EXPECTED_TO, (
+            f"{call.__name__} sent {to_param}={seen[0].params[to_param]!r}; the API "
+            f"documents it 'To and excluding', so an inclusive 2026-06-30 must go "
+            f"out as {EXPECTED_TO}"
+        )
+
+    @pytest.mark.parametrize("call,from_param,to_param", DIFFERENTLY_NAMED)
+    async def test_they_match_the_rest_of_the_library(self, call, from_param, to_param):
+        """The convention is inclusive at both ends. Two calls quietly differing
+        is how a consumer's own code came to drop a day."""
+        seen: list[httpx.URL] = []
+
+        await call(_client(seen), *H1)
+        sent_to = seen[0].params[to_param]
+
+        seen_posting: list[httpx.URL] = []
+        await list_postings(_client(seen_posting), *H1)
+
+        assert sent_to == seen_posting[0].params["dateTo"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from tripletex.endpoints._dates import exclusive_end
 from tripletex.endpoints._paging import paginate
 from tripletex.models import Order, OrderLine
 
@@ -36,13 +37,22 @@ async def list_orders(
     fields: str = _ORDER_FIELDS,
     limit: int | None = None,
 ) -> list[Order]:
-    """GET /v2/order. Date range is half-open [from, to) — to is exclusive.
+    """GET /v2/order. **Both dates are inclusive**, as everywhere in this library.
+
+    The endpoint's own `orderDateTo` is documented "To and excluding", so this
+    converts. It did not until 2026-09-17, which made these two the only
+    date-ranged calls here that dropped their last day — measured on one
+    company's 2025, six invoices and four orders dated 31 December.
+
+    An inconsistent convention is worse than either convention: a caller who
+    learns `list_postings` is inclusive reasonably assumes this is too, and
+    nothing about a short answer says otherwise.
 
     Returns every order in the range unless `limit` is given.
     """
     params: dict[str, str] = {
         "orderDateFrom": order_date_from.isoformat(),
-        "orderDateTo": order_date_to.isoformat(),
+        "orderDateTo": exclusive_end(order_date_to),
     }
     if fields:
         params["fields"] = fields

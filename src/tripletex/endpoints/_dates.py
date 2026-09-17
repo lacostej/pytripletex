@@ -34,6 +34,23 @@ toward exactly what matters.
 
 Convert once, here, where the parameter is built. Never send a caller's
 `date_to` directly.
+
+**Every `*To` filter in this API excludes**, not only the ones named `dateTo`.
+Audited against the published specification on 2026-09-17 — `invoiceDateTo`,
+`orderDateTo`, `yearTo`, `monthTo`, `startTo`, `endTo`, `numberTo` are all
+documented "To and excluding". Two calls here were still passing a caller's date
+through because their parameter is spelled differently and so escaped the first
+sweep: `list_invoices` and `list_orders` lost six invoices and four orders dated
+31 December on one company's 2025.
+
+So the check is not "does this send `dateTo`" but "does this send any `*To`".
+
+**A related trap that is not about a date at all.** `/v2/ledger/accountingPeriod`
+filters on the period's *start*, so a range that contains no period boundary
+matches no period — a week inside one month returns nothing, which reads as
+"nothing to report". `reconciliation.periods_covering` asks for overlap instead,
+using `endFrom`/`startTo`. Ranges can be lost by the field chosen as much as by
+the boundary, and both fail the same way: quietly, with a plausible answer.
 """
 
 from __future__ import annotations

@@ -30,13 +30,22 @@ async def list_invoices(
     fields: str = _INVOICE_FIELDS,
     limit: int | None = None,
 ) -> list[Invoice]:
-    """GET /v2/invoice. Date range is half-open [from, to) — to is exclusive.
+    """GET /v2/invoice. **Both dates are inclusive**, as everywhere in this library.
+
+    The endpoint's own `invoiceDateTo` is documented "To and excluding", so this
+    converts. It did not until 2026-09-17, which made these two the only
+    date-ranged calls here that dropped their last day — measured on one
+    company's 2025, six invoices and four orders dated 31 December.
+
+    An inconsistent convention is worse than either convention: a caller who
+    learns `list_postings` is inclusive reasonably assumes this is too, and
+    nothing about a short answer says otherwise.
 
     Returns every invoice in the range unless `limit` is given.
     """
     params: dict[str, str] = {
         "invoiceDateFrom": invoice_date_from.isoformat(),
-        "invoiceDateTo": invoice_date_to.isoformat(),
+        "invoiceDateTo": exclusive_end(invoice_date_to),
     }
     if fields:
         params["fields"] = fields
