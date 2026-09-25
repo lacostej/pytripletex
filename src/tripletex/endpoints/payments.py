@@ -67,6 +67,7 @@ class BankPayment(BaseModel):
     payment_date: Optional[datetime.date] = Field(default=None, alias="paymentDate")
     amount_currency: Optional[Decimal] = Field(default=None, alias="amountCurrency")
     status: Optional[str] = None
+    payment_source: Optional[str] = Field(default=None, alias="paymentSource")
     kid: Optional[str] = None
     receiver_reference: Optional[str] = Field(default=None, alias="receiverReference")
     source_voucher: Optional[dict] = Field(default=None, alias="sourceVoucher")
@@ -122,7 +123,8 @@ async def list_payments(
         "paymentCategory": "",
         "includeNonAttested": "true",
         "autoPosted": "false",
-        "paymentSource": "AutoPayTransaction",
+        # No paymentSource: omitted, it returns every source, and a company's
+        # source depends on its bank integration (AutoPay vs Ztl).
         "query": "",
     }
 
