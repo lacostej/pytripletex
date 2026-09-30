@@ -43,6 +43,9 @@ class InboxItem(BaseModel):
     voucher_documents: Optional[list[InboxDocument]] = Field(default=None, alias="voucherDocuments")
     comment_count: int = Field(default=0, alias="commentCount")
     is_locked: bool = Field(default=False, alias="isLocked")
+    # Which registration screen the inbox opens: the incoming-invoice page, else the simple-invoice menu.
+    can_be_registered_as_incoming_invoice: bool = Field(default=False, alias="canBeRegisteredAsIncomingInvoice")
+    can_be_registered_as_simple_invoice: bool = Field(default=False, alias="canBeRegisteredAsSimpleInvoice")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
