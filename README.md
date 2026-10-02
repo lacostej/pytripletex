@@ -330,6 +330,26 @@ merely wrong by a day. On one measured account it dropped 13 of 346 postings and
 flipped the reported movement from +20 182.00 to −23 286.00, because the missing
 day was month-end, where the accruals and settlements live.
 
+## API specification
+
+**Use `/v2/openapi.json`. Do not rely on `/v2/swagger.json`.** Tripletex serves
+both, but the swagger file is a static snapshot frozen at 2.71.30 (`last-modified`
+6 June 2025): it lacks 79 paths that exist today and still lists 18 that have been
+withdrawn. `openapi.json` is generated per request and was at 2.75.12, 551 paths,
+on 2026-10-02.
+
+`spec/openapi.json` tracks it, with keys sorted so a change reads as a diff. A
+GitHub Action (`.github/workflows/openapi.yml`) refreshes it every Monday and
+commits only when it changed; to refresh by hand:
+
+```bash
+scripts/update-openapi.sh   # prints the version change and paths added/removed
+```
+
+The spec describes what the API claims, not what it does — the measured
+differences live in the endpoint docstrings. Absence from it does not mean an
+endpoint does not exist either: several routes this library uses are undocumented.
+
 ## Development
 
 ```bash
