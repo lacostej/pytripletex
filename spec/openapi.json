@@ -26230,6 +26230,16 @@
             "readOnly": true,
             "type": "array"
           },
+          "companyRelationTypes": {
+            "description": "The company's relations to Tripletex: ACCOUNTANT, AUDITOR and/or RESELLER. Empty for an ordinary customer.",
+            "items": {
+              "description": "The company's relations to Tripletex: ACCOUNTANT, AUDITOR and/or RESELLER. Empty for an ordinary customer.",
+              "readOnly": true,
+              "type": "string"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
           "employeeRoles": {
             "description": "Roles granted to the logged-in employee.",
             "items": {
@@ -29424,6 +29434,10 @@
           "freeDimension3Name": {
             "readOnly": true,
             "type": "string"
+          },
+          "hasAccessToOldBalanceSheet": {
+            "readOnly": true,
+            "type": "boolean"
           },
           "hasBalanceAndResultReportDevMode": {
             "readOnly": true,
@@ -41474,8 +41488,8 @@
               "VoucherInboxDuplicateCheckPageWide",
               "AmeldingEmploymentPrefetch",
               "FabricAiOrderLinePredictionBatched",
-              "SupplierInvoiceOutstandingAmountPrefetch",
               "McpClientAccountCreation",
+              "McpStaffAccountCreation",
               "ApiDeferOrderLinePreliminaryInvoice"
             ],
             "readOnly": true,
@@ -74830,8 +74844,16 @@
             "minimum": 0,
             "type": "integer"
           },
+          "intervalInMonths": {
+            "description": "How often the invoice should be repeated, in months. Supply exactly one of this and invoicingRecurringInterval.",
+            "format": "int32",
+            "maximum": 24,
+            "minimum": 1,
+            "type": "integer"
+          },
           "invoicingRecurringInterval": {
-            "description": "How often the invoice should be repeated.",
+            "deprecated": true,
+            "description": "How often the invoice should be repeated. Superseded by intervalInMonths; supply exactly one of the two.",
             "enum": [
               "MONTHLY",
               "BIMONTHLY",
@@ -100054,6 +100076,16 @@
           },
           "employeeToken": {
             "$ref": "#/components/schemas/EmployeeToken"
+          },
+          "invoicePostponeDate": {
+            "description": "Date invoicing is held back until (\"Delay invoicing to\"), as stored on the new account",
+            "readOnly": true,
+            "type": "string"
+          },
+          "invoiceStartDate": {
+            "description": "Invoice start date as stored on the new account",
+            "readOnly": true,
+            "type": "string"
           },
           "tripletexAccountCreatedMessage": {
             "readOnly": true,
