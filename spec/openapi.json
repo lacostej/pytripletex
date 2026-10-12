@@ -458,12 +458,12 @@
       "AbsenceAccess": {
         "description": "Absence access for one employee. An omitted flag leaves that role unchanged; false revokes it.",
         "properties": {
-          "absenceDepartmentManager": {
-            "description": "\"Egen avdeling\" — absence access within their own department. Requires the department module.",
+          "absenceCompanyManager": {
+            "description": "\"Hele selskapet\" — absence access for every employee in the company.",
             "type": "boolean"
           },
-          "absenceManager": {
-            "description": "\"Hele selskapet\" — absence access for every employee in the company.",
+          "absenceDepartmentManager": {
+            "description": "\"Egen avdeling\" — absence access within their own department. Requires the department module.",
             "type": "boolean"
           },
           "absenceSettings": {
@@ -473,10 +473,6 @@
           "candidateForExtendedAccesses": {
             "description": "Whether the employee is a likely candidate for extended absence access — an immediate manager, or holding an hours/travel report department or company role, or administrator. A suggestion for which employees to list first; grants nothing.",
             "readOnly": true,
-            "type": "boolean"
-          },
-          "closestManager": {
-            "description": "\"Fravær for egne ansatte\" — absence access for the employees they are the immediate manager of.",
             "type": "boolean"
           },
           "departmentName": {
@@ -494,6 +490,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "ownEmployeesManager": {
+            "description": "\"Fravær for egne ansatte\" — absence access for the employees they are the immediate manager of.",
+            "type": "boolean"
+          },
           "personalAbsence": {
             "description": "\"Tilgang til eget fravær\" — may see and create their own absence.",
             "type": "boolean"
@@ -510,7 +510,7 @@
             "type": "boolean"
           },
           "automaticTimekeeping": {
-            "description": "Whether registered absences are written to the timesheet automatically. False if the company has no absence settings.",
+            "description": "Whether registered absences are written to the timesheet automatically: whenever the company has the hour list module.",
             "readOnly": true,
             "type": "boolean"
           },
@@ -783,6 +783,95 @@
         "readOnly": true,
         "type": "object"
       },
+      "AbsenceQuotaStatistics": {
+        "description": "Each employee's absence quota as it stands today, with totals.",
+        "properties": {
+          "rows": {
+            "description": "One row per employee the caller may read, usage or not, sorted by employee name.",
+            "items": {
+              "$ref": "#/components/schemas/AbsenceQuotaStatisticsRow"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/AbsenceQuotaStatisticsTotals"
+          },
+          "year": {
+            "description": "The current calendar year, which the sick-child figures cover.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "AbsenceQuotaStatisticsRow": {
+        "description": "One employee's absence quota as it stands today.",
+        "properties": {
+          "employeeId": {
+            "description": "The employee the figures belong to.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeName": {
+            "description": "The employee's display name.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "nextQuotaAvailableDate": {
+            "description": "When quotaUsedUp, the day the oldest egenmelding counted as a period leaves the 12-month window, ISO date. Null otherwise.",
+            "nullable": true,
+            "readOnly": true,
+            "type": "string"
+          },
+          "quotaUsedUp": {
+            "description": "Whether the egenmelding quota is used up: no period left where periods are capped, or the days used have reached the days allowed.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "selfCertification": {
+            "$ref": "#/components/schemas/AbsenceSelfCertificationUsage"
+          },
+          "sickChild": {
+            "$ref": "#/components/schemas/AbsenceSickChildUsage"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AbsenceQuotaStatisticsTotals": {
+        "description": "Sum row for the absence quota tab.",
+        "properties": {
+          "employeeCount": {
+            "description": "Employees listed, i.e. the number of rows.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "selfCertificationDays": {
+            "description": "Self-certified calendar days used across all rows.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "selfCertificationPeriods": {
+            "description": "Egenmelding periods used across all rows.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "sickChildDays": {
+            "description": "Sick-child calendar days used this year across all rows.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "AbsenceRejection": {
         "description": "A manager's decline of an absence.",
         "properties": {
@@ -838,10 +927,6 @@
         "properties": {
           "automaticApproval": {
             "description": "Whether absences are accepted automatically. When false, each absence awaits an explicit manager approval (TRIP-64110).",
-            "type": "boolean"
-          },
-          "automaticTimekeeping": {
-            "description": "Whether hours are registered automatically for absences.",
             "type": "boolean"
           },
           "changes": {
@@ -1010,11 +1095,56 @@
         },
         "type": "object"
       },
+      "AbsenceStatisticsExport": {
+        "description": "One tab of the absence statistics page, as shown.",
+        "properties": {
+          "columns": {
+            "description": "Column headers, left to right.",
+            "items": {
+              "description": "Column headers, left to right.",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "rows": {
+            "description": "One list of cell texts per employee, in the order of the columns.",
+            "items": {
+              "description": "One list of cell texts per employee, in the order of the columns.",
+              "items": {
+                "description": "One list of cell texts per employee, in the order of the columns.",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxItems": 20000,
+            "minItems": 0,
+            "type": "array"
+          },
+          "sheetName": {
+            "description": "Name of the sheet, e.g. the tab's title. Cut to Excel's limit and cleaned of characters it refuses.",
+            "type": "string"
+          },
+          "sumRow": {
+            "description": "The sum row, in the order of the columns. Written last, in bold.",
+            "items": {
+              "description": "The sum row, in the order of the columns. Written last, in bold.",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "AbsenceStatisticsRow": {
         "description": "Absence figures for one employee over the selected period.",
         "properties": {
           "allAbsenceDays": {
-            "description": "Scheduled working days lost to absence of any counted type in the period.",
+            "deprecated": true,
+            "description": "Scheduled working days lost to absence of any counted type in the period. Deprecated: use totalDays.",
             "format": "int32",
             "readOnly": true,
             "type": "integer"
@@ -1035,6 +1165,12 @@
           },
           "sickChild": {
             "$ref": "#/components/schemas/AbsenceSickChildUsage"
+          },
+          "totalDays": {
+            "description": "Self-certified plus sick-child calendar days in the period: the two quota columns added up.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -1044,7 +1180,8 @@
         "description": "Sum row for the absence statistics table.",
         "properties": {
           "allAbsenceDays": {
-            "description": "Scheduled working days lost across all rows.",
+            "deprecated": true,
+            "description": "Scheduled working days lost across all rows. Deprecated: use totalDays.",
             "format": "int32",
             "readOnly": true,
             "type": "integer"
@@ -1069,6 +1206,12 @@
           },
           "sickChildDays": {
             "description": "Sick-child calendar days across all rows.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "totalDays": {
+            "description": "Self-certified plus sick-child calendar days across all rows.",
             "format": "int32",
             "readOnly": true,
             "type": "integer"
@@ -1941,6 +2084,7 @@
                 "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
                 "AUTH_DIRECT_REMIT_CREATE_NEW",
                 "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+                "AUTH_FOLIO_ADMIN",
                 "AUTH_COMPANY_ADMIN",
                 "AUTH_EMPLOYEE_INFO",
                 "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -2044,6 +2188,7 @@
                 "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
                 "AUTH_DIRECT_REMIT_CREATE_NEW",
                 "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+                "AUTH_FOLIO_ADMIN",
                 "AUTH_COMPANY_ADMIN",
                 "AUTH_EMPLOYEE_INFO",
                 "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -2130,6 +2275,7 @@
               "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
               "AUTH_DIRECT_REMIT_CREATE_NEW",
               "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+              "AUTH_FOLIO_ADMIN",
               "AUTH_COMPANY_ADMIN",
               "AUTH_EMPLOYEE_INFO",
               "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -8413,6 +8559,21 @@
         },
         "type": "object"
       },
+      "AssistantCapabilities": {
+        "properties": {
+          "capabilities": {
+            "additionalProperties": {
+              "description": "AssistantCapability name to whether the assistant can do it for the logged-in user.",
+              "readOnly": true,
+              "type": "boolean"
+            },
+            "description": "AssistantCapability name to whether the assistant can do it for the logged-in user.",
+            "readOnly": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "AssistantResponseBlock": {
         "description": "Base type for assistant response blocks",
         "discriminator": {
@@ -10430,7 +10591,7 @@
       "BalanceReportRow": {
         "properties": {
           "accountId": {
-            "description": "Account id for ACCOUNT rows",
+            "description": "Account id for ACCOUNT rows, or null for a consolidated (group) report row whose account was posted on only in a group member and is absent from this company's own chart - accountNumber/accountName identify it.",
             "format": "int64",
             "readOnly": true,
             "type": "integer"
@@ -10447,7 +10608,7 @@
             "type": "integer"
           },
           "accountUrl": {
-            "description": "Chart-of-accounts URL for ACCOUNT rows",
+            "description": "Chart-of-accounts URL for ACCOUNT rows, or null for a consolidated-report row whose account has no chart-of-accounts entry in this company",
             "readOnly": true,
             "type": "string"
           },
@@ -10508,7 +10669,7 @@
             "type": "array"
           },
           "valuesHavePostings": {
-            "description": "ACCOUNT rows only: one flag per column (same order as `values`), true when the period that column's drilldown opens holds at least one posting. Lets a client tell a netted zero (postings that sum to 0) apart from an untouched zero, which the amount alone cannot express, so a cell agrees with its own drilldown. Scoped to the drilldown's period, NOT to the cumulative balance the value carries: a MONTH column reports that month alone, BALANCE_OUT the whole report period. BALANCE_IN and LAST_YEAR_CHANGE are always false — they have no drilldown, so they keep the plain value-based rendering. Empty for the other row types, where a zero is a real result rather than the absence of one.",
+            "description": "ACCOUNT, GROUP_SUM and GRAND_TOTAL rows: one flag per column (same order as `values`), true when the period that column's drilldown opens holds at least one posting — on a sum row, for any account it sums. Lets a client tell a netted zero (postings that sum to 0) apart from an untouched zero, which the amount alone cannot express, so a cell agrees with its own drilldown. Scoped to the drilldown's period, NOT to the cumulative balance the value carries: a MONTH column reports that month alone, BALANCE_OUT the whole report period. On ACCOUNT rows BALANCE_IN and LAST_YEAR_CHANGE are always false — they have no drilldown, so they keep the plain value-based rendering. A sum row's flag is also true when any account it sums has a non-zero value in that column, so balances that cancel out read as a real zero. Empty for GROUP_HEADER rows.",
             "items": {
               "readOnly": true,
               "type": "boolean"
@@ -11080,6 +11241,10 @@
             "type": "boolean"
           },
           "isAuthPaymentOverview": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isAuthTripletexPbcBankAdmin": {
             "readOnly": true,
             "type": "boolean"
           },
@@ -12360,6 +12525,10 @@
             "type": "number"
           },
           "minutesPerWagePayment": {
+            "format": "double",
+            "type": "number"
+          },
+          "minutesSavedPerAnomaly": {
             "format": "double",
             "type": "number"
           },
@@ -15334,6 +15503,7 @@
         "type": "object"
       },
       "ClaimsAndPayments": {
+        "description": "The client's open claims from Skatteetaten; empty when unavailableReason is set",
         "properties": {
           "amount": {
             "description": "Total amount of the claim",
@@ -15548,6 +15718,7 @@
                 "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
                 "AUTH_DIRECT_REMIT_CREATE_NEW",
                 "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+                "AUTH_FOLIO_ADMIN",
                 "AUTH_COMPANY_ADMIN",
                 "AUTH_EMPLOYEE_INFO",
                 "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -15623,6 +15794,31 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "ClientClaims": {
+        "properties": {
+          "claims": {
+            "description": "The client's open claims from Skatteetaten; empty when unavailableReason is set",
+            "items": {
+              "$ref": "#/components/schemas/ClaimsAndPayments"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "unavailableReason": {
+            "description": "Why Skatteetaten gave no claims for the client; null when it answered, also with no claims",
+            "enum": [
+              "CLIENT_NOT_DELEGATED",
+              "SYSTEM_USER_REFUSED",
+              "NO_SYSTEM_USER",
+              "INVALID_ORGANIZATION_NUMBER",
+              "ORGANIZATION_NUMBER_NOT_FOUND"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "ClientContext": {
@@ -16032,6 +16228,9 @@
           "adminLastName": {
             "type": "string"
           },
+          "clientCustomerCardId": {
+            "type": "string"
+          },
           "companyType": {
             "type": "string"
           },
@@ -16128,6 +16327,7 @@
               "REMIT",
               "AUTOPAY",
               "ZTL",
+              "FOLIO",
               "CASH_CREDIT_APRILA",
               "VOUCHER_SCANNING",
               "SMART_SCAN",
@@ -16151,6 +16351,8 @@
               "LOGISTICS",
               "RACKBEAT",
               "MIKRO",
+              "MINI_50",
+              "MINI_150",
               "VVS_ELECTRO",
               "ACCOUNT_OFFICE",
               "SMART_PROJECT",
@@ -16209,6 +16411,7 @@
               "REMIT",
               "AUTOPAY",
               "ZTL",
+              "FOLIO",
               "CASH_CREDIT_APRILA",
               "VOUCHER_SCANNING",
               "SMART_SCAN",
@@ -16232,6 +16435,8 @@
               "LOGISTICS",
               "RACKBEAT",
               "MIKRO",
+              "MINI_50",
+              "MINI_150",
               "VVS_ELECTRO",
               "ACCOUNT_OFFICE",
               "SMART_PROJECT",
@@ -16466,6 +16671,7 @@
               "REMIT",
               "AUTOPAY",
               "ZTL",
+              "FOLIO",
               "CASH_CREDIT_APRILA",
               "VOUCHER_SCANNING",
               "SMART_SCAN",
@@ -16489,6 +16695,8 @@
               "LOGISTICS",
               "RACKBEAT",
               "MIKRO",
+              "MINI_50",
+              "MINI_150",
               "VVS_ELECTRO",
               "ACCOUNT_OFFICE",
               "SMART_PROJECT",
@@ -19273,6 +19481,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "limitReached": {
+            "description": "True when this axis's limit cut the rows of at least one parent in this render, false when it did not. Null when the axis's blueprint node has no reference, so the engine cannot know.",
+            "type": "boolean"
+          },
           "sortable": {
             "description": "True when the axis can be sorted (autoGroupType is not None)",
             "type": "boolean"
@@ -21896,6 +22108,48 @@
         },
         "type": "object"
       },
+      "DebtCollectionCaseDTO": {
+        "properties": {
+          "caseInvoices": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceReferenceDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "caseNumber": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "openTasks": {
+            "items": {
+              "$ref": "#/components/schemas/DebtCollectionTaskDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "portalUrl": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "NONE",
+              "ACTIVE",
+              "PAUSED",
+              "DISPUTED",
+              "SURVEILLANCE",
+              "REJECTED",
+              "WITHDRAWN",
+              "ENDED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "DebtCollectionInfoDTO": {
         "properties": {
           "comments": {
@@ -21915,6 +22169,24 @@
             "type": "string"
           },
           "url": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "DebtCollectionTaskDTO": {
+        "properties": {
+          "id": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "schema": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "title": {
             "readOnly": true,
             "type": "string"
           }
@@ -22554,9 +22826,9 @@
             "$ref": "#/components/schemas/LedgerReference"
           },
           "openPostingIds": {
-            "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold.",
+            "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold. On a company-currency bank account, posts in one foreign currency are settled in that currency, with the company-currency difference booked as agio/disagio.",
             "items": {
-              "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold.",
+              "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold. On a company-currency bank account, posts in one foreign currency are settled in that currency, with the company-currency difference booked as agio/disagio.",
               "format": "int64",
               "type": "integer"
             },
@@ -22739,9 +23011,9 @@
             "$ref": "#/components/schemas/LedgerReference"
           },
           "openPostingIds": {
-            "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold.",
+            "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold. On a company-currency bank account, posts in one foreign currency are settled in that currency, with the company-currency difference booked as agio/disagio.",
             "items": {
-              "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold.",
+              "description": "Open posts to settle (utligning) together with the booking — they form one close group with the voucher's ledger postings. Requires a ledger side; the sum must balance within the roundoff threshold. On a company-currency bank account, posts in one foreign currency are settled in that currency, with the company-currency difference booked as agio/disagio.",
               "format": "int64",
               "type": "integer"
             },
@@ -22849,6 +23121,16 @@
             "readOnly": true,
             "type": "number"
           },
+          "amountCurrency": {
+            "description": "The posting's signed amount in its own currency when that is not the company's currency; null for a company-currency posting",
+            "readOnly": true,
+            "type": "number"
+          },
+          "currencyCode": {
+            "description": "The posting's own currency code when that is not the company's currency (a foreign-currency invoice); null for a company-currency posting",
+            "readOnly": true,
+            "type": "string"
+          },
           "date": {
             "description": "Posting date",
             "readOnly": true,
@@ -22915,6 +23197,32 @@
             "description": "Sum of the open posts' amounts, in the settlement currency",
             "readOnly": true,
             "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "DirectPostingSupplierInvoiceBookingRequestBody": {
+        "properties": {
+          "accountId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "departmentId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "draftId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "vatTypeId": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "vendorId": {
+            "format": "int64",
+            "type": "integer"
           }
         },
         "type": "object"
@@ -26131,6 +26439,7 @@
               "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
               "AUTH_DIRECT_REMIT_CREATE_NEW",
               "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+              "AUTH_FOLIO_ADMIN",
               "AUTH_COMPANY_ADMIN",
               "AUTH_EMPLOYEE_INFO",
               "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -32048,6 +32357,19 @@
         "readOnly": true,
         "type": "object"
       },
+      "GroupInvitationBatch": {
+        "properties": {
+          "companyIds": {
+            "items": {
+              "description": "The companies to invite",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "GroupInvitationCandidate": {
         "properties": {
           "canBeInvited": {
@@ -32073,6 +32395,24 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "GroupInvitationResult": {
+        "properties": {
+          "companyId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "ineligibility": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "sent": {
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "GroupUnit": {
@@ -33347,6 +33687,9 @@
               "$ref": "#/components/schemas/IncomingOrderLineExternalWrite"
             },
             "type": "array"
+          },
+          "paymentDraft": {
+            "$ref": "#/components/schemas/IncomingInvoicePaymentDraftExternal"
           }
         },
         "type": "object"
@@ -33365,6 +33708,9 @@
             },
             "readOnly": true,
             "type": "array"
+          },
+          "paymentDraft": {
+            "$ref": "#/components/schemas/IncomingInvoicePaymentDraftExternal"
           },
           "permissions": {
             "$ref": "#/components/schemas/IncomingInvoicePermissions"
@@ -33390,6 +33736,9 @@
               "$ref": "#/components/schemas/IncomingOrderLineExternalWrite"
             },
             "type": "array"
+          },
+          "paymentDraft": {
+            "$ref": "#/components/schemas/IncomingInvoicePaymentDraftExternal"
           },
           "revision": {
             "description": "Voucher revision, used for optimistic locking",
@@ -34714,6 +35063,154 @@
         "readOnly": true,
         "type": "object"
       },
+      "IncomingInvoicePaymentDraftExternal": {
+        "description": "The payment stored on a draft invoice. A payment is registered from it only when the invoice is sent with createPaymentFromDraft=true (PUT, :sendToLedger, :sendToNonPosted), or by a POST that sends it to the ledger, or to non-posted for a bank-integration payment. It is still returned after a bank-integration payment has been created from it on a non-posted draft; /paymentHistory shows that payment.",
+        "properties": {
+          "amountCurrency": {
+            "description": "Amount to pay, in the invoice currency. Defaults to the remaining-to-pay amount when omitted.",
+            "type": "number"
+          },
+          "creditorAddress": {
+            "description": "Creditor street address. Required for both SWIFT/BIC and clearing-code routes.",
+            "maxLength": 255,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorBIC": {
+            "description": "Creditor's bank BIC / SWIFT code. Required for the **SWIFT/BIC route** (`creditorBankIdentificator` = 0). Validated as an ISO 9362 SWIFT code; the country segment (chars 5–6) must match the IBAN country and `creditorBankCountryId`, and must not be NO.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorBankAddress": {
+            "description": "Creditor's bank address. Required for the **clearing-code route** (`creditorBankIdentificator` = 1); ignored on the SWIFT/BIC route. Autopay rejects values longer than 70 characters at send-time.",
+            "maxLength": 255,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorBankCountryId": {
+            "description": "Creditor's bank country ID. Required for both SWIFT/BIC and clearing-code routes. Must match the IBAN country (when IBAN is supplied) and must not be NO.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "creditorBankIdentificator": {
+            "description": "Which identifier is used to route the foreign payment to the creditor's bank. **0 = SWIFT/BIC** — the bank is addressed by `creditorBIC` only; `creditorBank*` fields are not required. **1 = Clearing code** — the bank is addressed by `creditorClearingCode` and the full `creditorBank*` block (name, address, postal code, postal city, country) is required. Required when `foreignPayment` is true.",
+            "enum": [
+              0,
+              1
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "creditorBankName": {
+            "description": "Creditor's bank name. Required for the **clearing-code route** (`creditorBankIdentificator` = 1); ignored on the SWIFT/BIC route. Autopay rejects values longer than 140 characters at send-time.",
+            "maxLength": 255,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorBankPostalCity": {
+            "description": "Creditor's bank postal city. Required for the **clearing-code route** (`creditorBankIdentificator` = 1); ignored on the SWIFT/BIC route.",
+            "maxLength": 35,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorBankPostalCode": {
+            "description": "Creditor's bank postal code. Required for the **clearing-code route** (`creditorBankIdentificator` = 1); ignored on the SWIFT/BIC route. Autopay rejects values longer than 16 characters at send-time.",
+            "maxLength": 255,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorClearingCode": {
+            "description": "Creditor bank clearing/routing code (e.g. ABA routing in the US, BSB in AU, IFSC in IN). Required for the **clearing-code route** (`creditorBankIdentificator` = 1); ignored on the SWIFT/BIC route. Autopay rejects values longer than 35 characters at send-time.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorCountryId": {
+            "description": "Creditor country ID (Tripletex country reference). Required for both SWIFT/BIC and clearing-code routes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "creditorIbanOrBban": {
+            "description": "Creditor IBAN or BBAN. Defaults to the vendor's account when omitted.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorName": {
+            "description": "Creditor (payee) name. Required for both SWIFT/BIC and clearing-code routes.",
+            "maxLength": 250,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorPostalCity": {
+            "description": "Creditor postal city. Required for both SWIFT/BIC and clearing-code routes. Autopay rejects values longer than 35 characters at send-time.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "creditorPostalCode": {
+            "description": "Creditor postal code. Required for both SWIFT/BIC and clearing-code routes. Autopay rejects values longer than 16 characters at send-time.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "foreignPayment": {
+            "description": "Flag for foreign payment. Must be true when sending to a creditor outside Norway via Autopay or ZTL — all other abroad fields below are only consulted when this is true.",
+            "type": "boolean"
+          },
+          "kidOrReceiverReference": {
+            "description": "KID or receiver reference. A digits-only value is treated as a KID; any value containing letters is treated as a free-text reference.",
+            "maxLength": 25,
+            "minLength": 0,
+            "type": "string"
+          },
+          "oppositeAmountCurrency": {
+            "description": "Opposite amount from currency exchange — the company-currency (NOK) equivalent of `amountCurrency`. Only consulted when the invoice currency differs from the company currency. When omitted, backfilled at booking time from the exchange rate on `paymentDate`.",
+            "type": "number"
+          },
+          "payLater": {
+            "description": "True when the invoice is to be paid later; no payment is created from this draft.",
+            "type": "boolean"
+          },
+          "paymentDate": {
+            "description": "Payment date.",
+            "type": "string"
+          },
+          "paymentTypeClientUUId": {
+            "description": "Payment type client UUID — the uniqueId from GET /bank/paymentWidget/advanced/paymentTypes?scenario=INCOMING_INVOICE_NEW. When useDefaultPaymentType is true, or this is left blank/omitted, the vendor's last-used payment type (else the scenario default) is used instead.",
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string"
+          },
+          "regulatoryReportingCode": {
+            "description": "Regulatory reporting code for foreign payments (both SWIFT/BIC and clearing-code routes). Required by Norges Bank when a single overseas payment exceeds 100 000 NOK. If set, `regulatoryReportingInfo` must also be set.",
+            "maxLength": 5,
+            "minLength": 0,
+            "type": "string"
+          },
+          "regulatoryReportingInfo": {
+            "description": "Free-text justification accompanying `regulatoryReportingCode` (both SWIFT/BIC and clearing-code routes). Required when `regulatoryReportingCode` is set.",
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string"
+          },
+          "selectedCreditNotes": {
+            "description": "Ids of credit-note vendor postings to offset against this invoice.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "useDefaultPaymentType": {
+            "description": "Set paymentType to last type for vendor, autopay, ztl or first available other type. Write-only: always false when read.",
+            "type": "boolean"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "IncomingInvoicePaymentExternalWrite": {
         "properties": {
           "amountCurrency": {
@@ -35542,6 +36039,11 @@
             ],
             "readOnly": true,
             "type": "string"
+          },
+          "paymentDraftDiscarded": {
+            "description": "True when the invoice was booked without creating the payment stored on the draft or sent in the request. Send createPaymentFromDraft=true to create it.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "paymentIdsToApprove": {
             "description": "List of payment ids that need to be approved",
@@ -36706,6 +37208,9 @@
       },
       "InfoDTO": {
         "properties": {
+          "debtCollectionCase": {
+            "$ref": "#/components/schemas/DebtCollectionCaseDTO"
+          },
           "internalComment": {
             "readOnly": true,
             "type": "string"
@@ -36716,7 +37221,7 @@
           },
           "relatedInvoices": {
             "items": {
-              "$ref": "#/components/schemas/RelatedInvoicesDTO"
+              "$ref": "#/components/schemas/InvoiceReferenceDTO"
             },
             "readOnly": true,
             "type": "array"
@@ -40115,6 +40620,13 @@
             "readOnly": true,
             "type": "string"
           },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceHistoryEvent"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/HistoryEntryDTO"
@@ -40129,6 +40641,121 @@
             "format": "int64",
             "readOnly": true,
             "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "InvoiceDispatch": {
+        "properties": {
+          "method": {
+            "enum": [
+              "EMAIL",
+              "SMS",
+              "LETTER",
+              "EHF",
+              "EFAKTURA",
+              "AVTALEGIRO",
+              "DEBT_COLLECTOR"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "recipients": {
+            "items": {
+              "readOnly": true,
+              "type": "string"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "SENT",
+              "DELIVERED",
+              "READ",
+              "BOUNCED",
+              "BLOCKED",
+              "DECLINED",
+              "DISPUTED",
+              "FAILED",
+              "UNKNOWN"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "statusText": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "InvoiceHistoryEvent": {
+        "properties": {
+          "amount": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "amountCurrency": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "description": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "dispatches": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceDispatch"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "dueDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "isScheduled": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "occurredAt": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "TRIPLETEX",
+              "DEBT_COLLECTOR",
+              "AMILI"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "INVOICE_CREATED",
+              "INVOICE_SENT",
+              "INVOICE_CREDITED",
+              "CREDIT_NOTE_SENT",
+              "DUE_DATE_PASSED",
+              "SOFT_REMINDER_SENT",
+              "REMINDER_SENT",
+              "NOTICE_OF_DEBT_COLLECTION_SENT",
+              "SENT_TO_DEBT_COLLECTION",
+              "COMMENT_ADDED",
+              "PAYMENT_RECEIVED",
+              "INVOICE_CLOSED"
+            ],
+            "readOnly": true,
+            "type": "string"
           }
         },
         "readOnly": true,
@@ -40167,6 +40794,39 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "InvoiceOrderRowDTO": {
+        "description": "An order (project) covered by an invoice, with its Tripletex charge period",
+        "properties": {
+          "orderAmount": {
+            "description": "Sum of the order's order lines, amount incl. VAT",
+            "readOnly": true,
+            "type": "number"
+          },
+          "orderNumber": {
+            "description": "Order (project) number",
+            "readOnly": true,
+            "type": "string"
+          },
+          "periodEnd": {
+            "description": "Tripletex charge period end",
+            "readOnly": true,
+            "type": "string"
+          },
+          "periodStart": {
+            "description": "Tripletex charge period start",
+            "readOnly": true,
+            "type": "string"
+          },
+          "projectId": {
+            "description": "Project ID",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "InvoiceOverviewMetaDTO": {
@@ -40294,6 +40954,30 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "InvoiceReferenceDTO": {
+        "properties": {
+          "invoiceDetailsUrl": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "invoiceId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "invoiceNumber": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "isCreditNote": {
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "InvoiceRemark": {
@@ -40435,6 +41119,48 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "InvoiceRowDTO": {
+        "description": "A charged invoice with the order(s) (projects) it covers",
+        "properties": {
+          "dueDate": {
+            "description": "Due date (term of payment)",
+            "readOnly": true,
+            "type": "string"
+          },
+          "invoiceAmount": {
+            "description": "Invoice amount",
+            "readOnly": true,
+            "type": "number"
+          },
+          "invoiceDate": {
+            "description": "Invoice date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "invoiceId": {
+            "description": "Invoice ID",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "invoiceNumber": {
+            "description": "Invoice number",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "orders": {
+            "description": "Orders (projects) this invoice covers",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOrderRowDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "InvoiceSend": {
@@ -41289,6 +42015,7 @@
               "AccountingOfficeServiceOptimizationPart2",
               "AccountingOfficeClientAccessForm",
               "CarryOverAccountantRelationOnTestAccountPurchase",
+              "SupporteeSettingsReactPage",
               "PilotFeatureRecordPatternQuery",
               "TimeBasedSessionInvalidation",
               "UserRateLimiting",
@@ -41324,6 +42051,8 @@
               "TaskFoxLegacyVoucherApprovalRollout",
               "TaskFoxBuildDraftOnImports",
               "TaskFoxIncomingInvoiceAnomaly",
+              "TaskFoxEhfForeignVatRate",
+              "TaskFoxPdfForeignVatRate",
               "TaskFoxDownloadEhfOriginals",
               "TaskFoxVoucherAttachmentFolder",
               "TaskFoxReuseEhfImportDocuments",
@@ -41375,6 +42104,9 @@
               "VismaConnectDanglingUserEvent",
               "AckResultCallBack",
               "ErrorRateLimiting",
+              "MemcachedBasedRateLimit",
+              "AssistantRateLimitBucket",
+              "TokenBucketRateLimit",
               "ImmutableObjectCache",
               "DTOCache",
               "DomainReferenceCheck",
@@ -41429,6 +42161,7 @@
               "ProjectApiFeeReservePrefetch",
               "ProjectApiInvoiceReservePrefetch",
               "ProjectApiDeliveryAddressPrefetch",
+              "ProjectApiSearchSqlPagination",
               "ProjectCategoryApiIsDeletablePrefetch",
               "ProjectApiOrderLineIndexHints",
               "WagePdfsNotifySqlFilter",
@@ -41446,12 +42179,15 @@
               "InvoicePdfLogoRequestCache",
               "BankInAppVCLogin",
               "BankTransactionQueryPrefetch",
+              "BankReconciliationMatchEntriesPrefetch",
+              "AutoPostingValidatedHistoryCache",
               "ReportEngineStripEntityPrefetch",
               "InternalApiTokens",
               "HourlistReportProjectPrefilter",
               "FeeReserveArchiveJob",
               "CompanyModuleSystemNew",
               "ListTripletexUsersPrefetch",
+              "TripletexUserOverviewReact",
               "DynamicLaneConcurrency",
               "AllowSendingOrderConfirmationEmail",
               "DashboardWidgetMoving",
@@ -41469,6 +42205,7 @@
               "PurchasesAndModulesTab",
               "MonthlyFeesGroupAccrual",
               "EmailDomainBlacklist",
+              "TripletexInvoicingTab",
               "ReceiveVouchersByEmail",
               "ReceiveEhfInvoices",
               "ReceiveEfoNelfoInvoicesByFtp",
@@ -41478,19 +42215,23 @@
               "AssistantExternalConnectorSlack",
               "AssistantExternalConnectorOutlook",
               "LazyReleaseDormantAutoInvoiceRegistration",
-              "ProjectInvoicingSkipUnreadOrderLineLoads",
-              "ProjectInvoicingUnchargedAggregatePopulate",
-              "ProjectVoucherCheckCandidatesFirst",
               "IncomingInvoiceExternalApiConsumerGate",
               "BetaProgramSelfService",
               "AssistantFileUpload",
-              "ExternalProductApiSearchSinglePass",
+              "AssistantSupplierInvoiceWrites",
               "VoucherInboxDuplicateCheckPageWide",
               "AmeldingEmploymentPrefetch",
               "FabricAiOrderLinePredictionBatched",
               "McpClientAccountCreation",
               "McpStaffAccountCreation",
-              "ApiDeferOrderLinePreliminaryInvoice"
+              "ApiDeferOrderLinePreliminaryInvoice",
+              "CompanyMultiStateModuleSystemNew",
+              "ProjectClosureDriftCheck",
+              "AmiliPostingListener",
+              "SalaryRunSpecificationExtraPrefetch",
+              "SalaryUnionDeductionHistoryByWageCode",
+              "ApiAccessAnnotationFilter",
+              "AccountantClientAccessAuthorization"
             ],
             "readOnly": true,
             "type": "string"
@@ -49080,6 +49821,39 @@
         },
         "type": "object"
       },
+      "ListResponseInvoiceDetails": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceDetails"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ListResponseInvoiceReminderDetails": {
         "properties": {
           "count": {
@@ -53093,6 +53867,39 @@
         },
         "type": "object"
       },
+      "ListResponseResellerAgreement": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ResellerAgreement"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ListResponseResellerReportAgreement": {
         "properties": {
           "count": {
@@ -55359,6 +56166,39 @@
           "values": {
             "items": {
               "$ref": "#/components/schemas/TravelPaymentType"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseTripletexAsCustomerCard": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/TripletexAsCustomerCard"
             },
             "readOnly": true,
             "type": "array"
@@ -58084,6 +58924,54 @@
         },
         "type": "object"
       },
+      "McpStandardTime": {
+        "properties": {
+          "days": {
+            "description": "One element per day from dateFrom up to, but not including, dateTo.",
+            "items": {
+              "$ref": "#/components/schemas/McpStandardTimeDay"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "employeeId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "workingHoursModule": {
+            "description": "Whether the company uses the working hours module. When false, standardHours is null on every day.",
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "McpStandardTimeDay": {
+        "description": "One element per day from dateFrom up to, but not including, dateTo.",
+        "properties": {
+          "date": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "estimated": {
+            "description": "True for days after today unless the caller is an employee admin for the employee. Their standardHours continues today's standard time (hours per day times employment percentage, without leave) on that date's weekends and company holidays, so planned changes (an employment end, a new employment percentage, future leave) are not shown.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "standardHours": {
+            "description": "Standard time for this day as the timesheet counts it: the hours per day setting scaled by employment percentage and leave of absence, zero on weekends and outside the employment, reduced on company holidays.",
+            "readOnly": true,
+            "type": "number"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "McpVacationBalance": {
         "description": "The vacation balance ('Feriesaldo'). Null when vacationBalanceAvailable is false and no payout or pay-deduction row applies. A persisted non-zero payout keeps the balance fields populated; when only the pay-deduction row applies, only the payout fields are populated; when the vacation balance module is off but working hours exist, only the vacationTakenThisYear fields are populated.",
         "properties": {
@@ -58411,11 +59299,39 @@
           "date": {
             "type": "string"
           },
+          "departureLatitude": {
+            "description": "Latitude of the departure location. 0 when unknown.",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
           "departureLocation": {
             "type": "string"
           },
+          "departureLongitude": {
+            "description": "Longitude of the departure location. 0 when unknown.",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
           "destination": {
             "type": "string"
+          },
+          "destinationLatitude": {
+            "description": "Latitude of the destination. 0 when unknown.",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "destinationLongitude": {
+            "description": "Longitude of the destination. 0 when unknown.",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
           },
           "drivingStops": {
             "description": "Link to individual mileage stops.",
@@ -59537,6 +60453,12 @@
           "active": {
             "readOnly": true,
             "type": "boolean"
+          },
+          "apiPriceIfKept": {
+            "description": "Monthly price of API 2.0 on this package, when switching to it would start charging for the API 2.0 the company has active. The customer then chooses whether to keep it. Null otherwise.",
+            "nullable": true,
+            "readOnly": true,
+            "type": "number"
           },
           "available": {
             "readOnly": true,
@@ -60784,6 +61706,9 @@
               "ABSENCE_REJECTED",
               "ABSENCE_REJECTION_UNDONE",
               "ABSENCE_APPROVAL_WITHDRAWN",
+              "ABSENCE_APPROVED",
+              "ABSENCE_DELETED_TO_EMPLOYEE",
+              "ABSENCE_DELETED_TO_MANAGER",
               "BANK",
               "VOUCHER",
               "BUSINESS",
@@ -60839,8 +61764,57 @@
         },
         "type": "object"
       },
+      "OnDemandRoutePoint": {
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/Lookup1881Coordinate"
+          },
+          "drivingStopIndex": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "tollStationIndex": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "OnDemandRushHoursToll": {
+        "properties": {
+          "autoPassPrice": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "autoPassPriceWithHourlyDiscount": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "price": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "priceWithHourlyDiscount": {
+            "readOnly": true,
+            "type": "number"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "OnDemandTollStation": {
         "properties": {
+          "autoPassPrice": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "autoPassPriceWithHourlyDiscount": {
+            "readOnly": true,
+            "type": "number"
+          },
           "coordinate": {
             "$ref": "#/components/schemas/Lookup1881Coordinate"
           },
@@ -60851,6 +61825,17 @@
           "price": {
             "readOnly": true,
             "type": "number"
+          },
+          "priceWithHourlyDiscount": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "regularPrice": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "rushHours": {
+            "$ref": "#/components/schemas/OnDemandRushHoursToll"
           }
         },
         "readOnly": true,
@@ -60861,6 +61846,13 @@
           "distance": {
             "readOnly": true,
             "type": "number"
+          },
+          "route": {
+            "items": {
+              "$ref": "#/components/schemas/OnDemandRoutePoint"
+            },
+            "readOnly": true,
+            "type": "array"
           },
           "tollStations": {
             "items": {
@@ -61792,6 +62784,29 @@
         },
         "type": "object"
       },
+      "OrderRowDTO": {
+        "description": "A charged order (project) with no invoice yet",
+        "properties": {
+          "orderDate": {
+            "description": "Order date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "orderNumber": {
+            "description": "Order (project) number",
+            "readOnly": true,
+            "type": "string"
+          },
+          "projectId": {
+            "description": "Project ID",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "OtherCircumstancesOverview": {
         "properties": {
           "assetsCompanyPosts": {
@@ -62031,7 +63046,8 @@
               "IncomePageViewOptions",
               "ReconciliationViewOptions",
               "IncomingInvoiceUnifiedViewOptions",
-              "ReconciliationTipsOptions"
+              "ReconciliationTipsOptions",
+              "InvoicingOptions"
             ],
             "type": "string"
           },
@@ -64492,6 +65508,11 @@
             "readOnly": true,
             "type": "string"
           },
+          "manuallyAdded": {
+            "description": "True when a user added the account to this table; only such rows can be removed again",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "referenceId": {
             "description": "Key the row's comments and attachments are stored under",
             "example": 1234,
@@ -64507,6 +65528,28 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "PayrollTaxAccountSelection": {
+        "properties": {
+          "accountId": {
+            "description": "The general ledger account to add to the table",
+            "example": 1234,
+            "format": "int64",
+            "type": "integer"
+          },
+          "category": {
+            "description": "The grunnlag category, or REPORTABLE for the opplysningspliktig table",
+            "enum": [
+              "WAGES",
+              "REIMBURSEMENT",
+              "PENSION",
+              "REPORTABLE"
+            ],
+            "example": "WAGES",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "PayrollTaxBasisSection": {
@@ -69628,11 +70671,14 @@
         "type": "object"
       },
       "ProjectBudgetActivities": {
+        "description": "Activities to save, if changed",
         "properties": {
           "activities": {
             "items": {
               "$ref": "#/components/schemas/ProjectBudgetActivity"
             },
+            "maxItems": 10000,
+            "minItems": 0,
             "type": "array"
           },
           "activityBudgetIsMaster": {
@@ -69678,8 +70724,9 @@
             "type": "boolean"
           },
           "version": {
-            "description": "Project row revision. On save, send the revision read at load time — the save is rejected with a revision conflict if the project changed since (optimistic lock, matching the legacy form and the Budget details section). The response carries the new revision.",
+            "description": "Project row revision. On save, a stale value is a revision conflict only when the save changes generalActivitiesPerProject or adds a budget for an existing activity; plain row edits are guarded by their row revisions. The response carries the current revision. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -69687,9 +70734,21 @@
       },
       "ProjectBudgetActivity": {
         "properties": {
+          "activityExtRevision": {
+            "description": "Revision of the activity's budget on this project. On save, send the revision read at load time so a concurrent edit to the budget fails the save with a conflict when the row changes it or deletes it, and a concurrent delete of the budget fails it unless the row deletes it too. New rows and linked general activities carry 0. Worked rows (logged hours, no budget) carry -1: if the activity has gained a budget since, a save that changes it conflicts. Omitted (null), it is not checked; any other sent value, 0 included, is compared.",
+            "format": "int32",
+            "minimum": -1,
+            "type": "integer"
+          },
           "activityId": {
             "description": "Activity id; 0 for a new project-specific activity",
             "format": "int64",
+            "type": "integer"
+          },
+          "activityRevision": {
+            "description": "Revision of the activity. On save, send the revision read at load time so a concurrent edit to this project-specific activity fails the save with a conflict when the row changes its name, number or chargeable flag. Ignored for general activities, which the save never edits. New rows (activityId == 0) carry 0. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
+            "format": "int32",
+            "minimum": 0,
             "type": "integer"
           },
           "budgetFeeCurrency": {
@@ -69765,6 +70824,7 @@
         "type": "object"
       },
       "ProjectBudgetDetails": {
+        "description": "Budget details to save, if changed",
         "properties": {
           "activityBudgetIsMaster": {
             "description": "Whether the activity budget is master (budget fields read-only)",
@@ -69844,8 +70904,9 @@
             "type": "number"
           },
           "version": {
-            "description": "Project row revision. On save, send the revision read at load time — the save is rejected with a revision conflict if the project changed since (optimistic lock, matching the legacy form). The response carries the new revision.",
+            "description": "Project row revision. On save, send the revision read at load time — the save is rejected with a revision conflict if the project changed since (optimistic lock, matching the legacy form). The response carries the new revision. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -69915,8 +70976,9 @@
             "type": "array"
           },
           "revision": {
-            "description": "Row revision. On save, echo the revision read at load time so a concurrent edit to this group fails the save with a conflict (the per-row optimistic lock the legacy budgetOrderGroups[].revision hidden fields provided). New groups (id == 0) carry 0.",
+            "description": "Row revision. On save, echo the revision read at load time so a concurrent edit to this group fails the save with a conflict (the per-row optimistic lock the legacy budgetOrderGroups[].revision hidden fields provided). New groups (id == 0) carry 0. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           },
           "title": {
@@ -69997,8 +71059,9 @@
             "$ref": "#/components/schemas/ProjectBudgetOrderLineProductRef"
           },
           "revision": {
-            "description": "Row revision. On save, echo the revision read at load time so a concurrent edit to this line fails the save with a conflict (the per-row optimistic lock the legacy budgetOrderGroups[].orderLines[].revision hidden fields provided). New rows (id == 0) carry 0.",
+            "description": "Row revision. On save, echo the revision read at load time so a concurrent edit to this line fails the save with a conflict (the per-row optimistic lock the legacy budgetOrderGroups[].orderLines[].revision hidden fields provided). New rows (id == 0) carry 0. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           },
           "totalExpensesCurrency": {
@@ -70115,6 +71178,7 @@
         "type": "object"
       },
       "ProjectBudgetOrderLines": {
+        "description": "Order lines/costs to save, if changed",
         "properties": {
           "canEdit": {
             "description": "Whether the current user may edit the budget",
@@ -70202,8 +71266,9 @@
             "type": "array"
           },
           "version": {
-            "description": "Project row revision. On save, echo the revision read at load time so the coordinator can thread the up-to-date revision into the sequenced legacy save (matching the Activities/Details sections) and so a concurrent project edit fails with a conflict. The response carries the current revision.",
+            "description": "Project row revision. The order-lines PUT rejects a stale value with a revision conflict; the batch sections save does not check it, since order lines write no project field and are guarded by their row revisions. The response carries the current revision. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -70279,8 +71344,9 @@
             "type": "string"
           },
           "revision": {
-            "description": "Row revision. On save, send the revision read at load time so a concurrent edit to this row fails the save with a conflict (the per-row optimistic lock the legacy subContracts[].revision hidden fields provided). New rows (id == 0) carry 0.",
+            "description": "Row revision. On save, send the revision read at load time so a concurrent edit to this row fails the save with a conflict (the per-row optimistic lock the legacy subContracts[].revision hidden fields provided). New rows (id == 0) carry 0. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           },
           "totalExpensesCurrency": {
@@ -70307,6 +71373,7 @@
         "type": "object"
       },
       "ProjectBudgetSubContracts": {
+        "description": "Subcontracts to save, if changed",
         "properties": {
           "canEdit": {
             "description": "Whether the current user may edit the budget",
@@ -70382,9 +71449,65 @@
             "type": "number"
           },
           "version": {
-            "description": "Project row revision. On save, send the revision read at load time so the coordinator can thread the up-to-date revision into the sequenced legacy save (matching the Activities/Details sections). The response carries the current revision.",
+            "description": "Project row revision. Not checked on save: subcontract writes are guarded by their row revisions. The response carries the current revision.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ProjectBudgetTab": {
+        "properties": {
+          "activities": {
+            "$ref": "#/components/schemas/ProjectBudgetActivities"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ProjectBudgetDetails"
+          },
+          "loadedVersion": {
+            "description": "Project row revision the save loaded, before any of its writes",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "orderLines": {
+            "$ref": "#/components/schemas/ProjectBudgetOrderLines"
+          },
+          "subContracts": {
+            "$ref": "#/components/schemas/ProjectBudgetSubContracts"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ProjectBudgetTotals"
+          },
+          "travelExpenses": {
+            "$ref": "#/components/schemas/ProjectBudgetTravelExpenses"
+          },
+          "version": {
+            "description": "Project row revision after the save",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ProjectBudgetTabSave": {
+        "properties": {
+          "activities": {
+            "$ref": "#/components/schemas/ProjectBudgetActivities"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ProjectBudgetDetails"
+          },
+          "orderLines": {
+            "$ref": "#/components/schemas/ProjectBudgetOrderLines"
+          },
+          "subContracts": {
+            "$ref": "#/components/schemas/ProjectBudgetSubContracts"
+          },
+          "travelExpenses": {
+            "$ref": "#/components/schemas/ProjectBudgetTravelExpenses"
           }
         },
         "type": "object"
@@ -70465,8 +71588,9 @@
             "$ref": "#/components/schemas/ProjectBudgetTravelExpensesProductRef"
           },
           "revision": {
-            "description": "Row revision of the backing line. On save, echo the revision read at load time so a concurrent edit fails with a conflict. 0 when no line exists yet.",
+            "description": "Row revision of the backing line. On save, echo the revision read at load time so a concurrent edit fails with a conflict. 0 when no line exists yet. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           },
           "showIncome": {
@@ -70490,8 +71614,9 @@
             "type": "number"
           },
           "version": {
-            "description": "Project row revision. On save, echo the revision read at load time so the coordinator can thread the up-to-date revision into the sequenced legacy save (matching the Order lines/Activities/Details sections) and so a concurrent project edit fails with a conflict. The response carries the current revision.",
+            "description": "Project row revision. On save, a stale value is a revision conflict only when the save creates the travel line; edits of an existing line are guarded by its revision. The response carries the current revision. Omitted (null), it is not checked; any sent value, 0 included, is compared.",
             "format": "int32",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -71165,11 +72290,51 @@
         "readOnly": true,
         "type": "object"
       },
+      "ProjectOrderLinesCostSpec": {
+        "properties": {
+          "discountPercentage": {
+            "description": "Default discount percentage for new order lines. Omitted from the read and ignored on save unless showDiscount.",
+            "type": "number"
+          },
+          "extraPercentOrderLines": {
+            "description": "Default mark-up percentage for new order lines. Omitted from the read and ignored on save unless showMarkup.",
+            "type": "number"
+          },
+          "orderLinesSortOrder": {
+            "description": "Sort order for order lines on the invoice: 0 registration order, 1 date, 2 product, 3 custom",
+            "format": "int32",
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "useProductNetPrice": {
+            "description": "Use the product's net price instead of the list price",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Project row revision. On save, send the revision read at load time — the save is rejected with a conflict if another user changed the project since.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "viewInvoiceExtracostMarkup": {
+            "description": "Show the mark-up on the invoice. Ignored on save unless showMarkup.",
+            "type": "boolean"
+          },
+          "viewInvoiceShowDiscount": {
+            "description": "Show the discount on the invoice. Ignored on save unless showDiscount.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "ProjectOrderLinesTab": {
         "properties": {
           "canEditCostSpec": {
             "description": "Whether the caller may edit the cost-specification block (legacy: project-manager privileges)",
             "type": "boolean"
+          },
+          "costSpec": {
+            "$ref": "#/components/schemas/ProjectOrderLinesCostSpec"
           },
           "internalProject": {
             "description": "Internal project — legacy renders the tab as \"Costs\" and hides every income column",
@@ -71189,6 +72354,10 @@
           },
           "moduleProduct": {
             "description": "Product module on — the product column and picker exist",
+            "type": "boolean"
+          },
+          "orderLinesDefaultChargeable": {
+            "description": "New order lines are chargeable by default (project.isOrderLinesDefaultChargeable) — the Chargeable box a new row starts with",
             "type": "boolean"
           },
           "projectClosed": {
@@ -74845,24 +76014,11 @@
             "type": "integer"
           },
           "intervalInMonths": {
-            "description": "How often the invoice should be repeated, in months. Supply exactly one of this and invoicingRecurringInterval.",
+            "description": "How often the invoice should be repeated, in months.",
             "format": "int32",
             "maximum": 24,
             "minimum": 1,
             "type": "integer"
-          },
-          "invoicingRecurringInterval": {
-            "deprecated": true,
-            "description": "How often the invoice should be repeated. Superseded by intervalInMonths; supply exactly one of the two.",
-            "enum": [
-              "MONTHLY",
-              "BIMONTHLY",
-              "QUARTERLY",
-              "BIANNUALLY",
-              "YEARLY",
-              "CUSTOM"
-            ],
-            "type": "string"
           },
           "invoicingTimeCount": {
             "description": "Number of time units before/after the invoicing period start/end.",
@@ -75431,11 +76587,20 @@
             "type": "string"
           },
           "invoicesDueIn": {
-            "description": "Number of days in which invoices created from this order are due, or the day of the month they are due when the customer has a fixed due date. Which one applies is decided by the customer's due date setting, which this endpoint derives from the customer rather than accepting as input. A fixed due date of 31 resolves to the last day of the month.",
+            "description": "Number of time units in which invoices created from this order are due, in the unit given by invoicesDueInType. When invoicesDueInType is omitted, a new order takes the unit from the customer's due date setting and an update keeps the order's current unit.",
             "format": "int32",
             "maximum": 10000,
             "minimum": 0,
             "type": "integer"
+          },
+          "invoicesDueInType": {
+            "description": "Set the time unit of invoicesDueIn. The special case RECURRING_DAY_OF_MONTH enables the due date to be fixed to a specific day of the month, in this case the fixed due date will automatically be set as standard on all invoices created from this order. Note that when RECURRING_DAY_OF_MONTH is set, the due date will be set to the last day of month if \"31\" is set in invoicesDueIn.",
+            "enum": [
+              "DAYS",
+              "MONTHS",
+              "RECURRING_DAY_OF_MONTH"
+            ],
+            "type": "string"
           },
           "orderLineSorting": {
             "description": "Sort order of order lines. Use CUSTOM to honor per-line sortIndex values.",
@@ -75681,26 +76846,6 @@
             "type": "number"
           }
         },
-        "type": "object"
-      },
-      "RelatedInvoicesDTO": {
-        "properties": {
-          "invoiceId": {
-            "format": "int64",
-            "readOnly": true,
-            "type": "integer"
-          },
-          "invoiceNumber": {
-            "format": "int32",
-            "readOnly": true,
-            "type": "integer"
-          },
-          "isCreditNote": {
-            "readOnly": true,
-            "type": "boolean"
-          }
-        },
-        "readOnly": true,
         "type": "object"
       },
       "Reminder": {
@@ -77787,6 +78932,64 @@
         },
         "type": "object"
       },
+      "ResellerAgreement": {
+        "description": "What one reseller earns on one fee type for one customer, over one period",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "customerTripletexCompanyId": {
+            "description": "The tripletexCompany ID of the customer the commission is earned on. Cannot be changed once the agreement exists.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "endDate": {
+            "description": "The day the agreement stops applying (exclusive), or null when it is open-ended. An agreement running for three years from 2026-01-01 ends on 2029-01-01.",
+            "type": "string"
+          },
+          "feePercentage": {
+            "description": "Percentage of the fee the reseller earns. Between 0 and 100.",
+            "type": "number"
+          },
+          "feeType": {
+            "description": "What the commission is earned on. Cannot be changed once the agreement exists.",
+            "enum": [
+              "SERVICE",
+              "USAGE",
+              "STARTUP",
+              "YEAR_END",
+              "ZTL"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "resellerTripletexCompanyId": {
+            "description": "The tripletexCompany ID of the reseller earning the commission. Cannot be changed once the agreement exists.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "startDate": {
+            "description": "First day the agreement applies (inclusive)",
+            "type": "string"
+          },
+          "url": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ResellerReportAgreement": {
         "properties": {
           "customerId": {
@@ -78213,6 +79416,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/AbsenceQuota"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAbsenceQuotaStatistics": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AbsenceQuotaStatistics"
           }
         },
         "type": "object"
@@ -78657,6 +79868,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/AssetOverview"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAssistantCapabilities": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AssistantCapabilities"
           }
         },
         "type": "object"
@@ -79203,6 +80422,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ClientAccessTemplate"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperClientClaims": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ClientClaims"
           }
         },
         "type": "object"
@@ -80966,6 +82193,17 @@
         },
         "type": "object"
       },
+      "ResponseWrapperListGroupInvitationResult": {
+        "properties": {
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/GroupInvitationResult"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperListInteger": {
         "properties": {
           "value": {
@@ -81306,6 +82544,17 @@
         },
         "type": "object"
       },
+      "ResponseWrapperListTodoListVatPortfolio": {
+        "properties": {
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/TodoListVatPortfolio"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperListTodoListWageTransaction": {
         "properties": {
           "value": {
@@ -81593,6 +82842,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/McpResultBudgetUpdateResponse"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperMcpStandardTime": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/McpStandardTime"
           }
         },
         "type": "object"
@@ -82271,6 +83528,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperProjectBudgetTab": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ProjectBudgetTab"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperProjectBudgetTotals": {
         "properties": {
           "value": {
@@ -82339,6 +83604,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ProjectOrderLine"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperProjectOrderLinesCostSpec": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ProjectOrderLinesCostSpec"
           }
         },
         "type": "object"
@@ -82779,6 +84052,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ResearchAndDevelopment2024"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperResellerAgreement": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ResellerAgreement"
           }
         },
         "type": "object"
@@ -83820,6 +85101,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperTripletexAccountPricesTab": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexAccountPricesTab"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperTripletexAccountPricingDetails": {
         "properties": {
           "value": {
@@ -83832,6 +85121,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/TripletexAccountReturn"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperTripletexAsCustomerCard": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexAsCustomerCard"
           }
         },
         "type": "object"
@@ -83852,10 +85149,42 @@
         },
         "type": "object"
       },
+      "ResponseWrapperTripletexInvoicingOverviewDTO": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexInvoicingOverviewDTO"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperTripletexSalesModulePurchase": {
         "properties": {
           "value": {
             "$ref": "#/components/schemas/TripletexSalesModulePurchase"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperTripletexUserOverviewList": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexUserOverviewList"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperTripletexUserOverviewProxyPrincipals": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexUserOverviewProxyPrincipals"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperTripletexUserOverviewSettings": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/TripletexUserOverviewSettings"
           }
         },
         "type": "object"
@@ -84565,7 +85894,7 @@
             "type": "array"
           },
           "valuesHavePostings": {
-            "description": "ACCOUNT rows only: one flag per column (same order as `values`), true when the column's bucket holds at least one posting. Lets a client tell a netted zero (postings that sum to 0) apart from an untouched zero, which the amount alone cannot express. Empty for the other row types, where a zero is a real result rather than the absence of one. Budget columns are always false — a budget has no postings behind it.",
+            "description": "ACCOUNT, GROUP_SUM and GRAND_TOTAL rows: one flag per column (same order as `values`), true when the column's bucket holds at least one posting — on a sum row, on any account it sums. Lets a client tell a netted zero (postings that sum to 0) apart from an untouched zero, which the amount alone cannot express. Empty for GROUP_HEADER rows. On ACCOUNT rows budget columns are always false — a budget has no postings behind it. A sum row's flag is also true when any account it sums has a non-zero value in that column, so budgets or deviations that cancel out read as a real zero.",
             "items": {
               "readOnly": true,
               "type": "boolean"
@@ -84682,6 +86011,7 @@
                 "AUTH_MANAGE_BANK_ACCOUNT_NUMBERS",
                 "AUTH_DIRECT_REMIT_CREATE_NEW",
                 "AUTH_DIRECT_REMIT_ADMIN_ZTL",
+                "AUTH_FOLIO_ADMIN",
                 "AUTH_COMPANY_ADMIN",
                 "AUTH_EMPLOYEE_INFO",
                 "AUTH_COMPANY_EMPLOYEE_ADMIN",
@@ -87450,7 +88780,10 @@
               "DIGITAL_SIGNING",
               "TRIPLETEX_MCP_BETA",
               "INNBETALING_TOTAL",
-              "ANOMALY_DETECTION"
+              "ANOMALY_DETECTION",
+              "FOLIO",
+              "MINI_50",
+              "MINI_150"
             ],
             "readOnly": true,
             "type": "string"
@@ -87600,7 +88933,10 @@
               "DIGITAL_SIGNING",
               "TRIPLETEX_MCP_BETA",
               "INNBETALING_TOTAL",
-              "ANOMALY_DETECTION"
+              "ANOMALY_DETECTION",
+              "FOLIO",
+              "MINI_50",
+              "MINI_150"
             ],
             "readOnly": true,
             "type": "string"
@@ -87716,6 +89052,12 @@
           },
           "loginEmployeeId": {
             "description": "Login employee",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "loginTripletexEmployeeId": {
+            "description": "The real employee behind a proxy login (an accountant working inside a client account); 0 otherwise",
             "format": "int64",
             "readOnly": true,
             "type": "integer"
@@ -88311,6 +89653,8 @@
               "UNLIMITED_VOUCHERS_AUTOMATION",
               "LOGISTICS",
               "MIKRO",
+              "MINI_50",
+              "MINI_150",
               "AUTOPLUS_MINI",
               "AUTOPLUS_MEDIUM",
               "AUTOPLUS_STOR",
@@ -89375,6 +90719,21 @@
         },
         "type": "object"
       },
+      "ServiceBillingDeferralDate": {
+        "properties": {
+          "customerId": {
+            "description": "The Tripletex customer id.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "serviceBillingDeferralDate": {
+            "description": "Defers the start of SERVICE billing to this date; the period before it is never invoiced. Null removes the deferral and SERVICE billing starts according to normal rules.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "SessionToken": {
         "properties": {
           "changes": {
@@ -90133,6 +91492,12 @@
             "readOnly": true,
             "type": "string"
           },
+          "shareholderId": {
+            "description": "The id of the shareholder this row belongs to. Null if a transaction's seller or buyer is not set.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
           "time": {
             "readOnly": true,
             "type": "string"
@@ -90141,6 +91506,11 @@
             "format": "int32",
             "readOnly": true,
             "type": "integer"
+          },
+          "transactionType": {
+            "description": "The transaction type (e.g. PURCHASE_SALE) for transactions, or the event type (e.g. NEW_ISSUE) for company events.",
+            "readOnly": true,
+            "type": "string"
           },
           "type": {
             "readOnly": true,
@@ -93602,22 +94972,6 @@
             "description": "Whether the factoring system uses a client authentication code",
             "readOnly": true,
             "type": "boolean"
-          },
-          "factoringClientCredentialsApplicable": {
-            "description": "Whether the factoring system uses client id, username and password",
-            "readOnly": true,
-            "type": "boolean"
-          },
-          "factoringClientId": {
-            "description": "Client id at the factoring company",
-            "format": "int32",
-            "readOnly": true,
-            "type": "integer"
-          },
-          "factoringClientUsername": {
-            "description": "Username at the factoring company",
-            "readOnly": true,
-            "type": "string"
           },
           "factoringCompanyName": {
             "description": "Name of the factoring company as it is registered among the customer's own customers",
@@ -97189,6 +98543,7 @@
             "description": "Which metric this card represents. The client owns the localized label.",
             "enum": [
               "DEGREE_OF_INVOICING_OF_WORKING_HOURS",
+              "DEGREE_OF_INVOICING_OF_AVAILABLE_HOURS",
               "CHARGEABLE_HOURS",
               "INTERNAL_HOURS",
               "ABSENCE_HOURS",
@@ -98092,6 +99447,203 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "TodoListVatPortfolio": {
+        "properties": {
+          "accountManagerId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountManagerName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "clientCompanyId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "clientName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "customAccountManagerId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customAccountManagerName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "customDueDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "customStatus": {
+            "$ref": "#/components/schemas/TodoListItemStatus"
+          },
+          "customerId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "dueDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "itemIdentifier": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "period": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "periodEndExclusive": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "periodStart": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/TodoListVatPortfolioReadiness"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TodoListItemStatus"
+          },
+          "term": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "termSizeMonths": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "url": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "vatStatus": {
+            "$ref": "#/components/schemas/TodoListVatPortfolioStatus"
+          },
+          "year": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TodoListVatPortfolioReadiness": {
+        "description": "What blocks creating the return, as GET /vatReturns/validateCreate returns it. Only set while no return exists for the term.",
+        "properties": {
+          "accountingPeriodClosed": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "accountsRequiringHarmonizationIds": {
+            "items": {
+              "format": "int64",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "alreadyExists": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "beforeStartBalance": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "helpAccountPostedOnId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "incompleteVouchers": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "invalidDate": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "ready": {
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "TodoListVatPortfolioStatus": {
+        "description": "Delivery and payment status, from the same source as GET /vatReturns/status.",
+        "properties": {
+          "altinnPaymentAmount": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "deliveryStatus": {
+            "enum": [
+              "NOT_STARTED",
+              "NOT_SENT",
+              "SENDING",
+              "WAITING_FOR_REPLY",
+              "RECEIPT_RECEIVED",
+              "MANUAL_DELIVERY",
+              "DELIVERY_FORBIDDEN",
+              "FAILED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "paymentDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "paymentRemainingAmount": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "paymentStatus": {
+            "enum": [
+              "NOT_STARTED",
+              "NOT_PAID",
+              "NO_TAX_TO_PAY",
+              "AMOUNT_CREDITED",
+              "PAYMENT_REGISTERED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "totalAmountVatBasis": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "vatReturnId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherNumber": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "TodoListWageTransaction": {
@@ -99468,6 +101020,10 @@
           "administrator": {
             "$ref": "#/components/schemas/Employee"
           },
+          "attachMigrationHelper": {
+            "description": "Give Flyttehjelpen access to the new account so it can migrate the customer's data in.",
+            "type": "boolean"
+          },
           "auditor": {
             "type": "boolean"
           },
@@ -99638,6 +101194,21 @@
               "$ref": "#/components/schemas/Dropdown"
             },
             "type": "array"
+          },
+          "assistantCanCreateTripletexAccount": {
+            "description": "True if the in-product assistant can create a Tripletex account for the logged-in user, so support's create page can point to it.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "assistantCanEstablishClientAccess": {
+            "description": "True if the in-product assistant can create and connect client accounts for the logged-in user, so the form can point to it.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "assistantFileUploadAvailable": {
+            "description": "True if files can be attached in the in-product assistant.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "companyTypes": {
             "description": "List containing the company types.",
@@ -99877,6 +101448,8 @@
                 "UNLIMITED_VOUCHERS_AUTOMATION",
                 "LOGISTICS",
                 "MIKRO",
+                "MINI_50",
+                "MINI_150",
                 "AUTOPLUS_MINI",
                 "AUTOPLUS_MEDIUM",
                 "AUTOPLUS_STOR",
@@ -99945,6 +101518,52 @@
           "sumYearlyService": {
             "readOnly": true,
             "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "TripletexAccountPricesTab": {
+        "properties": {
+          "accountStartDate": {
+            "description": "The account's own start date.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "customerId": {
+            "description": "The Tripletex customer id.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerName": {
+            "description": "The customer's name, as it appears on the customer card.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "newInvoicingMigrationDate": {
+            "description": "The date this customer was migrated to the new invoicing solution, or null if they never were.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "onNewInvoicing": {
+            "description": "True when this customer is on the new invoicing solution.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "serviceBillingDeferralDate": {
+            "description": "Defers the start of SERVICE billing to this date; the period before it is never invoiced. Null when billing is not deferred, which means that SERVICE billing starts according to normal rules. Stored as TripletexCompany.invoiceStartDate.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Anything a write did beyond the field it was asked to change, in plain language. Always empty on a read.",
+            "items": {
+              "description": "Anything a write did beyond the field it was asked to change, in plain language. Always empty on a read.",
+              "readOnly": true,
+              "type": "string"
+            },
+            "readOnly": true,
+            "type": "array"
           }
         },
         "type": "object"
@@ -100094,6 +101713,50 @@
         },
         "type": "object"
       },
+      "TripletexAsCustomerCard": {
+        "properties": {
+          "accountManagerId": {
+            "description": "Employee id of the account manager (kundeansvarlig), 0 for none.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountManagerName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "customerNumber": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "organizationNumber": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "salesEmployeeId": {
+            "description": "Employee id of the sales representative (selger), 0 for none.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "salesEmployeeName": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "TripletexCompanyBuilder": {
         "properties": {
           "companyId": {
@@ -100107,6 +101770,11 @@
             "type": "integer"
           },
           "customerId": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -100255,6 +101923,28 @@
         "readOnly": true,
         "type": "object"
       },
+      "TripletexInvoicingOverviewDTO": {
+        "description": "Read-only invoices and orders overview for a Tripletex customer",
+        "properties": {
+          "invoices": {
+            "description": "Charged invoices for this customer, each with its order(s). Empty if none, or if the caller lacks access to any one of them.",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRowDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "orders": {
+            "description": "Charged orders (projects) with no invoice yet. Only meaningful when invoices is empty, but always populated.",
+            "items": {
+              "$ref": "#/components/schemas/OrderRowDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "TripletexPrices": {
         "description": "DTO containing Tripletex's prices informations.",
         "properties": {
@@ -100378,6 +102068,204 @@
           "version": {
             "format": "int32",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TripletexUserOverview": {
+        "description": "The users of the account",
+        "properties": {
+          "accessType": {
+            "description": "How the employee reaches the system: SYSTEM_ACCESS, PAYSLIP_ONLY or NO_LOGIN",
+            "readOnly": true,
+            "type": "string"
+          },
+          "companyId": {
+            "description": "The company the employee belongs to",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "email": {
+            "description": "Email address",
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeId": {
+            "description": "Employee id in the customer company",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullName": {
+            "description": "Full name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "hasGrantedSupportAccess": {
+            "description": "Tripletex support already has read access to this user",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isAccountAdministrator": {
+            "description": "Has the account administrator role",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isAdministrator": {
+            "description": "Has the administrator role in their own company",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isContact": {
+            "description": "A contact rather than an employee",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isDirectRemitAdmin": {
+            "description": "Has full access to bank and payments, resolved in the employee's own company",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isFreeUser": {
+            "description": "Not charged a user licence",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isProxy": {
+            "description": "An accountant or auditor proxy rather than a person",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isReadOnly": {
+            "description": "Has read-only access",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "lastRequestTime": {
+            "description": "Time of the last logged request. Only set when asked for.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lastRequestUri": {
+            "description": "URI of the last logged request. Only set when asked for.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "proxyCustomerId": {
+            "description": "Customer card of the accounting or audit firm behind a proxy user, 0 for a regular employee",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "supportAccessState": {
+            "description": "Support access state: GRANTED, PENDING, EXPIRED, REJECTED or NONE",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "TripletexUserOverviewList": {
+        "properties": {
+          "users": {
+            "description": "The users of the account",
+            "items": {
+              "$ref": "#/components/schemas/TripletexUserOverview"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TripletexUserOverviewPrincipal": {
+        "description": "Auditors who can log in through the proxy",
+        "properties": {
+          "companyId": {
+            "description": "The accounting or audit firm this person works for",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeId": {
+            "description": "Employee id to send the access request to",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullName": {
+            "description": "Full name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "supportAccessState": {
+            "description": "Support access state on the client account: GRANTED, PENDING, EXPIRED, REJECTED or NONE",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "TripletexUserOverviewProxyPrincipals": {
+        "properties": {
+          "accountants": {
+            "description": "Accountants who can log in through the proxy",
+            "items": {
+              "$ref": "#/components/schemas/TripletexUserOverviewPrincipal"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "auditors": {
+            "description": "Auditors who can log in through the proxy",
+            "items": {
+              "$ref": "#/components/schemas/TripletexUserOverviewPrincipal"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TripletexUserOverviewSettings": {
+        "properties": {
+          "canHackIn": {
+            "description": "May log in as a user without their permission",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canLoginAsUser": {
+            "description": "May log in as a user that has granted support access",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canOpenUserSettings": {
+            "description": "May open the request log and user settings of a user",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "customerCategoryName": {
+            "description": "Customer category of the account, shown as the list heading",
+            "readOnly": true,
+            "type": "string"
+          },
+          "isSuspendedOrClosed": {
+            "description": "The account is suspended or closed, which disables the access actions",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isTripletexTestAccount": {
+            "description": "A Tripletex test account, where support may log in without asking",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "suspendedMessage": {
+            "description": "Why the account is suspended. Empty unless it is.",
+            "readOnly": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -103359,6 +105247,10 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "hasGoodsReceiptAccess": {
+            "readOnly": true,
+            "type": "boolean"
+          },
           "hasModuleDepartmentAccounting": {
             "readOnly": true,
             "type": "boolean"
@@ -103600,7 +105492,10 @@
               "DIGITAL_SIGNING",
               "TRIPLETEX_MCP_BETA",
               "INNBETALING_TOTAL",
-              "ANOMALY_DETECTION"
+              "ANOMALY_DETECTION",
+              "FOLIO",
+              "MINI_50",
+              "MINI_150"
             ],
             "readOnly": true,
             "type": "string"
@@ -108001,7 +109896,7 @@
     },
     "description": "    [ Base URL: https://tripletex.no/v2 ]\n\n## Usage\n\n-   **Download the spec** [openapi.json](/v2/openapi.json) file, it is a [OpenAPI Specification](https://github.com/OAI/OpenAPI-Specification).\n\n-   **Generating a client** can easily be done using tools like [openapi-generator](https://github.com/OpenAPITools/openapi-generator) or [swagger-codegen](https://github.com/swagger-api/swagger-codegen) or other that accepts [OpenAPI Specification](https://github.com/OAI/OpenAPI-Specification) specs.\n\n    -   For swagger codegen it is recommended to use the flag: **--removeOperationIdPrefix**.\n        Unique operation ids are about to be introduced to the spec, and this ensures forward compatibility - and results in less verbose generated code.\n\n-   **Please note** that Tripletex offers several packages. Some endpoints are only supported in certain packages. You can see the Tripletex packages [here](https://www.tripletex.no/priser/).\n\n## Overview\n\n-   Partial resource updating is done using the `PUT` method with optional fields instead of the `PATCH` method.\n\n-   **Actions** or **commands** are represented in our RESTful path with a prefixed `:`. Example: `/hours/123/:approve`.\n\n-   **Summaries** or **aggregated** results are represented in our RESTful path with a prefixed `>`. Example: `/hours/>thisWeeksBillables`.\n\n-   **Request ID** is a key found in all responses in the header with the name `x-tlx-request-id`. For validation and error responses it is also in the response body. If additional log information is absolutely necessary, our support division can locate the key value.\n\n-   **version** This is a revision number found on all persisted resources. If included, it will prevent your PUT/POST from overriding any updates to the resource since your GET.\n\n-   **Date** follows the **[ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)** standard, meaning the format `YYYY-MM-DD`.\n\n-   **DateTime** follows the **[ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)** standard, meaning the format `YYYY-MM-DDThh:mm:ss`.\n\n-   **Searching** is done by entering values in the optional fields for each API call. The values fall into the following categories: range, in, exact and like.\n\n-   **Missing fields** or even **no response data** can occur because result objects and fields are filtered on authorization.\n\n-   **See [GitHub](https://github.com/Tripletex/tripletex-api2) for more documentation, code examples, changelog and more.**\n\n-   **See [Tripletex for developers](https://developer.tripletex.no/) for more practical information, support, updates and access form**\n\n## Authentication\n\n[Read more here](https://developer.tripletex.no/docs/documentation/authentication-and-tokens/)\n\n-   **Tokens:** The Tripletex API uses 3 different tokens\n\n    -   **consumerToken** is a token provided to the consumer by Tripletex after the API 2.0 registration is completed.\n\n    -   **employeeToken** is a token created by an administrator in your Tripletex account via the user settings and the tab \"API access\". Each employee token must be given a set of entitlements.\n\n    -   **sessionToken** is the token from `/token/session/:create` which requires a consumerToken and an employeeToken created with the same consumer token, but not an authentication header.\n\n-   **Authentication** is done via [Basic access authentication](https://en.wikipedia.org/wiki/Basic_access_authentication)\n\n    -   **username** is used to specify what company to access.\n\n        -   `0` or blank means the company of the employee.\n\n        -   Any other value means accountant clients. Use `/company/>withLoginAccess` to get a list of those.\n\n    -   **password** is the **sessionToken**.\n\n    -   If you need to create the header yourself use `Authorization: Basic <encoded token>` where `encoded token` is the string `<target company id or 0>:<your session token>` Base64 encoded.\n\n## Tags\n\n-   `[BETA]` This is a beta endpoint and can be subject to change.\n-   `[DEPRECATED]` Deprecated means that we intend to remove/change this feature or capability in a future \"major\" API release. We therefore discourage all use of this feature/capability.\n\n## Fields\n\nUse the `fields` parameter to specify which fields should be returned. This also supports fields from sub elements, done via `<field>(<subResourceFields>)`. `*` means all fields for that resource. Example values:\n\n-   `project,activity,hours` returns `{project:..., activity:...., hours:...}`.\n-   just `project` returns `\"project\" : { \"id\": 12345, \"url\": \"tripletex.no/v2/projects/12345\" }`.\n-   `project(*)` returns `\"project\" : { \"id\": 12345 \"name\":\"ProjectName\" \"number.....startDate\": \"2013-01-07\" }`.\n-   `project(name)` returns `\"project\" : { \"name\":\"ProjectName\" }`.\n-   All resources and some subResources : `*,activity(name),employee(*)`.\n\n## Sorting\n\nUse the `sorting` parameter to specify sorting. It takes a comma separated list, where a `-` prefix denotes descending. You can sort by sub object with the following format: `<field>.<subObjectField>`. Example values:\n\n-   `date`\n-   `project.name`\n-   `project.name, -date`\n\n## Changes\n\nTo get the changes for a resource, `changes` have to be explicitly specified as part of the `fields` parameter, e.g. `*,changes`.\nThere are currently two types of change available:\n\n-   `CREATE` for when the resource was created\n-   `UPDATE` for when the resource was updated\n\n**NOTE**\n\n> For objects created prior to October 24th 2018 the list may be incomplete, but will always contain the CREATE and the last change (if the object has been changed after creation).\n\n## Rate limiting\n\nRate limiting is performed on the API calls for an employee for each API consumer. Status regarding the rate limit is returned as headers:\n\n-   `X-Rate-Limit-Limit` - The number of allowed requests in the current period.\n-   `X-Rate-Limit-Remaining` - The number of remaining requests.\n-   `X-Rate-Limit-Reset` - The number of seconds left in the current period.\n\nOnce the rate limit is hit, all requests will return HTTP status code `429` for the remainder of the current period.\n\n## Response envelope\n\n#### Multiple values\n\n```json\n{\n  \"fullResultSize\": ###, // {number} [DEPRECATED]\n  \"from\": ###, // {number} Paging starting from\n  \"count\": ###, // {number} Paging count\n  \"versionDigest\": \"###\", // {string} Hash of full result, null if no result\n  \"values\": [...{...object...},{...object...},{...object...}...]\n}\n```\n\n#### Single value\n\n```json\n{\n  \"value\": {...single object...}\n}\n```\n\n## WebHook envelope\n\n```json\n{\n  \"subscriptionId\": ###, // Subscription id\n  \"event\": \"object.verb\", // As listed from /v2/event/\n  \"id\": ###, // Id of object this event is for\n  \"value\": {... single object, null if object.deleted ...}\n}\n```\n\n## Error/warning envelope\n\n```json\n{\n  \"status\": ###, // {number} HTTP status code\n  \"code\": #####, // {number} internal status code of event\n  \"message\": \"###\", // {string} Basic feedback message in your language\n  \"link\": \"###\", // {string} Link to doc\n  \"developerMessage\": \"###\", // {string} More technical message\n  \"validationMessages\": [ // {array} List of validation messages, can be null\n    {\n      \"field\": \"###\", // {string} Name of field\n      \"message\": \"###\" // {string} Validation message for field\n    }\n  ],\n  \"requestId\": \"###\" // {string} Same as x-tlx-request-id\n}\n```\n\n## Status codes / Error codes\n\n-   **200 OK**\n-   **201 Created** - From POSTs that create something new.\n-   **204 No Content** - When there is no answer, ex: \"/:anAction\" or DELETE.\n-   **400 Bad request** -\n    -   **4000** Bad Request Exception\n    -   **11000** Illegal Filter Exception\n    -   **12000** Path Param Exception\n-   **401 Unauthorized** - When authentication is required and has failed or has not yet been provided\n    -   **3000** Authentication Exception\n-   **403 Forbidden** - When AuthorisationManager says no.\n    -   **9000** Security Exception\n-   **404 Not Found** - For resources that does not exist.\n    -   **6000** Not Found Exception\n    -   **6001** Object Deleted Exception - the object existed and was deleted, as opposed to never having existed.\n-   **409 Conflict** - Such as an edit conflict between multiple simultaneous updates\n    -   **7000** Object Exists Exception\n    -   **8000** Revision Exception\n    -   **10000** Locked Exception\n    -   **14000** Duplicate entry\n    -   **24000** Voucher Not Openable As Incoming Invoice Exception\n    -   **25000** State Conflict Exception - the object exists, but its current state does not allow the operation.\n-   **422 Bad Request** - For Required fields or things like malformed payload.\n    -   **15000** Value Validation Exception\n    -   **16000** Mapping Exception\n    -   **17000** Sorting Exception\n    -   **18000** Validation Exception\n    -   **21000** Param Exception\n    -   **22000** Invalid JSON Exception\n    -   **23000** Result Set Too Large Exception\n-   **429 Too Many Requests** - Request rate limit hit\n-   **500 Internal Error** - Unexpected condition was encountered and no more specific message is suitable\n    -   **1000** Exception\n",
     "title": "Tripletex API",
-    "version": "2.75.12"
+    "version": "2.75.15"
   },
   "openapi": "3.0.1",
   "paths": {
@@ -122920,6 +124815,30 @@
             "description": "SAF-T code",
             "in": "query",
             "name": "saftCode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Containing. Matches accounts whose name contains the text (whitespace matches anything), or whose number starts with it. Dots are ignored for the number match, so 1180.20 matches 118020. Text that is not all digits matches on name only.",
+            "in": "query",
+            "name": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From and including. Start of the account number range, digits only, dots ignored. Each account number is cut to the length of this value and compared as text, the AccountFilter default used by /ledger/balanceSheet and the general ledger, not the numeric /balanceSheet. With 1000 and accountNumberTo 1999, 19201, 192001 and 12 are included and 45 and 500 are not. Numbers shorter than a bound are compared as text too, with one bound or two: 345 passes 3000 alone and 3000 to 3999. Can be used without accountNumberTo.",
+            "in": "query",
+            "name": "accountNumberFrom",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "To and including. End of the account number range, digits only, dots ignored, same text comparison as accountNumberFrom. 1920 to 1920 returns 1920, 19201 and 192001. Can be used without accountNumberFrom.",
+            "in": "query",
+            "name": "accountNumberTo",
             "schema": {
               "type": "string"
             }
@@ -140354,6 +142273,10 @@
                     "description": "Create departments",
                     "type": "boolean"
                   },
+                  "importFreeDimensions": {
+                    "description": "Set the company's free dimensions on the vouchers from the file's analyses: an analysis type whose description is the name of an active free dimension, its values matched by number, then by name, and created when missing. Only for a package with free dimensions; ignored for SAF-T files before version 1.30.",
+                    "type": "boolean"
+                  },
                   "importProjects": {
                     "description": "Create projects",
                     "type": "boolean"
@@ -141094,6 +143017,116 @@
           }
         ],
         "summary": "Create a payroll tax reconciliation context for a customer",
+        "tags": [
+          "salary/payrollTax/reconciliation"
+        ]
+      }
+    },
+    "/salary/payrollTax/reconciliation/{reconciliationId}/accounts": {
+      "delete": {
+        "operationId": "SalaryPayrollTaxReconciliationAccounts_deleteAccounts",
+        "parameters": [
+          {
+            "description": "The reconciliation id",
+            "in": "path",
+            "name": "reconciliationId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The general ledger account to remove",
+            "in": "query",
+            "name": "accountId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The grunnlag category, or REPORTABLE for the opplysningspliktig table",
+            "in": "query",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "enum": [
+                "WAGES",
+                "REIMBURSEMENT",
+                "PENSION",
+                "REPORTABLE"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseWrapperPayrollTaxOverview"
+                }
+              }
+            },
+            "description": "successful operation"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "Remove a manually added account from this and later periods",
+        "tags": [
+          "salary/payrollTax/reconciliation"
+        ]
+      },
+      "post": {
+        "operationId": "SalaryPayrollTaxReconciliationAccounts_postAccounts",
+        "parameters": [
+          {
+            "description": "The reconciliation id",
+            "in": "path",
+            "name": "reconciliationId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; charset=utf-8": {
+              "schema": {
+                "$ref": "#/components/schemas/PayrollTaxAccountSelection"
+              }
+            }
+          },
+          "description": "Partial object describing what should be updated",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseWrapperPayrollTaxOverview"
+                }
+              }
+            },
+            "description": "successfully created"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "Add an account to a grunnlag category or the opplysningspliktig table; it stays in later periods until removed",
         "tags": [
           "salary/payrollTax/reconciliation"
         ]
@@ -154283,6 +156316,10 @@
     {
       "description": "Project budget tab API for internal use",
       "name": "internal/project/budget"
+    },
+    {
+      "description": "Project budget tab batch save for internal use",
+      "name": "internal/project/budgetTab"
     },
     {
       "description": "Project order lines/costs tab API for internal use",
