@@ -162,6 +162,19 @@
             "format": "int64",
             "type": "integer"
           },
+          "referenceType": {
+            "description": "What referenceId points at",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "example": "ACCOUNT",
+            "readOnly": true,
+            "type": "string"
+          },
           "uploadedAt": {
             "description": "The date and time when the attachment was uploaded",
             "readOnly": true,
@@ -220,6 +233,18 @@
             "example": 1234567890,
             "format": "int64",
             "type": "integer"
+          },
+          "referenceType": {
+            "description": "What referenceId points at. Defaults to the reconciliation type's own key: ACCOUNT for balance, payroll tax and finance tax, VAT_TYPE for VAT, PAYMENT_DATE for tax and mandatory deduction, ACCOUNT_NUMBER for holiday allowance. PAYROLL_TAX_SUM for the AGA sum rows.",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "example": "ACCOUNT",
+            "type": "string"
           },
           "url": {
             "readOnly": true,
@@ -773,6 +798,11 @@
             "format": "int32",
             "readOnly": true,
             "type": "integer"
+          },
+          "startsOnNonWorkingDay": {
+            "description": "The proposed absence starts on a day the employee does not work: no working hours that day from their standard time (weekly pattern included), weekends and public holidays. Self-certification days are calendar days, so a start on a day off spends the allowance on days that were never going to be worked. Always false when the request gives no startDate.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "totalExceeded": {
             "description": "Whether the total usage exceeds the quota: more periods than allowed (when periods are capped), or more days than allowed. Judges the total only; whether one absence breaks the quota, including a single egenmelding longer than the days per period, is quotaExceeded on the absence.",
@@ -2743,6 +2773,35 @@
         "readOnly": true,
         "type": "object"
       },
+      "AccountingOfficeEmployee": {
+        "description": "Current users matching employeeQuery, at most 50.",
+        "properties": {
+          "clientAccountAdmin": {
+            "description": "Holds the client account administrator role in the office.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "email": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "firstName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "lastName": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "AccountingOfficeEmployeeOverview": {
         "properties": {
           "certifications": {
@@ -2789,6 +2848,53 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "AccountingOfficeForStaff": {
+        "properties": {
+          "accountant": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "auditor": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "companyId": {
+            "description": "The office's own company id.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCardId": {
+            "description": "The office's customer card in Tripletex AS.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employees": {
+            "description": "Current users matching employeeQuery, at most 50.",
+            "items": {
+              "$ref": "#/components/schemas/AccountingOfficeEmployee"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "matchingEmployeeCount": {
+            "description": "How many current users match employeeQuery; more than employees holds when the list was cut.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "organizationNumber": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "AccountingPeriod": {
@@ -3467,6 +3573,7 @@
           },
           "apiConsumerId": {
             "format": "int64",
+            "readOnly": true,
             "type": "integer"
           },
           "categories": {
@@ -5176,6 +5283,7 @@
         "type": "object"
       },
       "AggregateAnomaly": {
+        "description": "The group's only voucher when voucherCount is 1, rendered as a voucher row; null otherwise",
         "properties": {
           "account": {
             "$ref": "#/components/schemas/Account"
@@ -5185,6 +5293,12 @@
           },
           "anomalyCheckId": {
             "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "anomalyCount": {
+            "description": "Number of posting-level anomalies on this voucher",
+            "format": "int32",
             "readOnly": true,
             "type": "integer"
           },
@@ -5281,6 +5395,18 @@
           },
           "voucher": {
             "$ref": "#/components/schemas/Voucher"
+          },
+          "voucherNumber": {
+            "description": "The row's voucher number; set only on the vouchers of a group, whose list line names it. 0 elsewhere",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherYear": {
+            "description": "The voucher's year",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -5431,6 +5557,55 @@
       "AgroToTripletex": {
         "properties": {
           "userEmail": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AiInvoiceScanConfig": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "pipelineType": {
+            "type": "string"
+          },
+          "promptText": {
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AiInvoiceScanConfigCreate": {
+        "properties": {
+          "modelName": {
+            "type": "string"
+          },
+          "pipelineType": {
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          },
+          "systemPrompt": {
+            "type": "string"
+          },
+          "userPrompt": {
             "type": "string"
           }
         },
@@ -7130,6 +7305,11 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "batchReactivationEnabled": {
+            "description": "Whether the company is allowlisted to select clients that already have an active subscription for batch re-activation.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "inactiveClientCount": {
             "description": "Number of clients without an active anomaly subscription",
             "format": "int32",
@@ -7215,6 +7395,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "isGroupMember": {
+            "description": "Whether this voucher shares its group with another one in its status window, which makes its date read as the group's month",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "labelDescription": {
             "description": "Description shown on hover of a label chip; explains which accounts the check covers",
             "readOnly": true,
@@ -7287,6 +7472,8 @@
               "VENDOR_LEDGER",
               "ARCHIVE",
               "REOPEN",
+              "ARCHIVE_ALL",
+              "REOPEN_ALL",
               "CHANGE_VAT_CODE"
             ],
             "readOnly": true,
@@ -7447,6 +7634,235 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyGroup": {
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/AnomalyActionLayout"
+          },
+          "anomalyCount": {
+            "description": "Posting-level anomalies across the group's vouchers",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "checkType": {
+            "enum": [
+              "UNKNOWN",
+              "POSTING_AMOUNT",
+              "VAT_NUMBER",
+              "CUSTOMER_ID",
+              "VENDOR_ID",
+              "ACCOUNT_VENDOR_AGGREGATE_AMOUNT",
+              "DUPLICATE_POSTINGS",
+              "OLD_DATE",
+              "NEW_SIGN_ON_ACCOUNT",
+              "CUSTOMER_VAT_NUMBER",
+              "VENDOR_VAT_NUMBER",
+              "NEW_ACTIVITY_ON_ACCOUNT",
+              "ACCOUNT_VENDOR_PROJECT",
+              "VENDOR_ORG_NUMBER_MISMATCH"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "flaggedVouchers": {
+            "description": "The anomaly id and client company of each voucher counted in voucherCount",
+            "items": {
+              "$ref": "#/components/schemas/FlaggedVoucher"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "key": {
+            "description": "The group's identity, for fetching its detail and vouchers. Never references a row",
+            "readOnly": true,
+            "type": "string"
+          },
+          "labelDescription": {
+            "description": "Description shown on hover of a label chip",
+            "readOnly": true,
+            "type": "string"
+          },
+          "labels": {
+            "description": "The newest voucher's labels",
+            "items": {
+              "description": "The newest voucher's labels",
+              "readOnly": true,
+              "type": "string"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "single": {
+            "$ref": "#/components/schemas/AggregateAnomaly"
+          },
+          "status": {
+            "description": "The newest voucher's status",
+            "enum": [
+              "UNRESOLVED",
+              "UNDER_REVIEW",
+              "RESOLVED",
+              "ARCHIVED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "The newest voucher's timestamp",
+            "readOnly": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "The newest voucher's title",
+            "readOnly": true,
+            "type": "string"
+          },
+          "trend": {
+            "description": "Trend hint for the leading amount-direction label chip; null when the label has no direction",
+            "enum": [
+              "STONKS",
+              "STINKS"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "voucherCount": {
+            "description": "Vouchers in the group, within the window the list was read through. Above 1 means the entry expands",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyGroupDetail": {
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/AnomalyActionLayout"
+          },
+          "anomalyCount": {
+            "description": "Posting-level anomalies across the group's vouchers",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "checkType": {
+            "enum": [
+              "UNKNOWN",
+              "POSTING_AMOUNT",
+              "VAT_NUMBER",
+              "CUSTOMER_ID",
+              "VENDOR_ID",
+              "ACCOUNT_VENDOR_AGGREGATE_AMOUNT",
+              "DUPLICATE_POSTINGS",
+              "OLD_DATE",
+              "NEW_SIGN_ON_ACCOUNT",
+              "CUSTOMER_VAT_NUMBER",
+              "VENDOR_VAT_NUMBER",
+              "NEW_ACTIVITY_ON_ACCOUNT",
+              "ACCOUNT_VENDOR_PROJECT",
+              "VENDOR_ORG_NUMBER_MISMATCH"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "date": {
+            "description": "The newest voucher's date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "description": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "flaggedVouchers": {
+            "description": "The anomaly id and client company of each voucher in the group",
+            "items": {
+              "$ref": "#/components/schemas/FlaggedVoucher"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "key": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "labelDescription": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "readOnly": true,
+              "type": "string"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "partyName": {
+            "description": "The vendor or customer of a VAT-registration group. Null for other checks",
+            "readOnly": true,
+            "type": "string"
+          },
+          "partyVatRegistered": {
+            "description": "Whether that vendor or customer is VAT registered. Null for other checks",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "UNRESOLVED",
+              "UNDER_REVIEW",
+              "RESOLVED",
+              "ARCHIVED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "title": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "trend": {
+            "enum": [
+              "STONKS",
+              "STINKS"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "vatCodes": {
+            "description": "Every VAT code flagged somewhere in the group, in voucher order",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyVatCode"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "voucherCount": {
+            "description": "Vouchers in the group, across every client asked for",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherRows": {
+            "description": "One row per voucher, oldest first",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyVoucherRow"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "AnomalyJobTracker": {
@@ -7667,6 +8083,76 @@
             "description": "VAT code number, e.g. \"1\" — send this back when changing the code",
             "readOnly": true,
             "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyVoucherRow": {
+        "description": "One row per voucher, oldest first",
+        "properties": {
+          "amount": {
+            "description": "Sum of the flagged postings' amounts on this voucher",
+            "readOnly": true,
+            "type": "number"
+          },
+          "companyId": {
+            "description": "The client company the voucher belongs to, which is the group's",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "date": {
+            "description": "The voucher's posting date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The voucher's own description; empty when it has none",
+            "readOnly": true,
+            "type": "string"
+          },
+          "documentId": {
+            "description": "The voucher's PDF (attachment preferred over document); 0 when it has neither",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Id of the child aggregate this row summarises",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "vatAmount": {
+            "description": "Sum of the flagged postings' VAT amounts on this voucher",
+            "readOnly": true,
+            "type": "number"
+          },
+          "vatCodes": {
+            "description": "The distinct VAT codes the flagged postings carry",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyVatCode"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "voucherNumber": {
+            "description": "The voucher number; 0 when not resolvable",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherUrl": {
+            "description": "Deep link to the voucher; empty when there is none",
+            "readOnly": true,
+            "type": "string"
+          },
+          "voucherYear": {
+            "description": "The voucher's year",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -8517,6 +9003,77 @@
           },
           "saleDate": {
             "description": "The date of the sale",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AssistantActionIntent": {
+        "properties": {
+          "args": {
+            "description": "The stored arguments, as JSON.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "consumedAt": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "expiresAt": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "facts": {
+            "description": "What the confirmation card shows, read when the intent was made, as JSON.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "source": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "CONSUMED",
+              "DECLINED",
+              "EXPIRED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "tool": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "uuid": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AssistantActionIntentCreate": {
+        "description": "The action a page offers the logged-in user to carry out in the Assistant.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "description": "The tool's target, e.g. {\"customerId\": 39931}. Checked and rewritten by the backend.",
+              "type": "object"
+            },
+            "description": "The tool's target, e.g. {\"customerId\": 39931}. Checked and rewritten by the backend.",
+            "type": "object"
+          },
+          "source": {
+            "description": "Where the button sits, e.g. tripletex-account:staffCreate.",
+            "type": "string"
+          },
+          "tool": {
+            "description": "The Assistant tool, e.g. create_tripletex_account.",
             "type": "string"
           }
         },
@@ -10579,7 +11136,8 @@
               "MONTH",
               "BALANCE_OUT",
               "LAST_YEAR_BALANCE_OUT",
-              "LAST_YEAR_CHANGE"
+              "LAST_YEAR_CHANGE",
+              "LAST_YEAR_CHANGE_PERCENT"
             ],
             "readOnly": true,
             "type": "string"
@@ -11208,6 +11766,10 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "isAuthBankAdminPage": {
+            "readOnly": true,
+            "type": "boolean"
+          },
           "isAuthBankDashboard": {
             "readOnly": true,
             "type": "boolean"
@@ -11401,7 +11963,8 @@
             "description": "The integration for witch maintenance period if for.",
             "enum": [
               "AUTOPAY",
-              "ZTL"
+              "ZTL",
+              "FOLIO"
             ],
             "type": "string"
           },
@@ -12872,6 +13435,14 @@
       },
       "BetaProgram": {
         "properties": {
+          "canDeactivate": {
+            "description": "Whether the current employee may switch the program off themselves now: it is active, the program lets customers switch it off, and the employee may change the company's programs. When false for an active program, deactivationTerms say how to leave it.",
+            "type": "boolean"
+          },
+          "canSwitchOff": {
+            "description": "Whether the program lets customers switch it off again themselves, whether or not the company has it. When false, leaving it is a support action; deactivationTerms say how.",
+            "type": "boolean"
+          },
           "descriptionActivation": {
             "description": "Terms to show before activating, in the caller's locale.",
             "type": "string"
@@ -15796,6 +16367,196 @@
         "readOnly": true,
         "type": "object"
       },
+      "ClientAccountCandidate": {
+        "description": "The account, as Tripletex AS knows it.",
+        "properties": {
+          "clientCompanyId": {
+            "description": "The account's company id.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCategory3": {
+            "description": "Customer category 3 on that card, e.g. paying or test.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "endDate": {
+            "description": "When it ends, if an end is set.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "The name on the account's customer card in Tripletex AS.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "startDate": {
+            "description": "When the account's relation to Tripletex AS started.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "tripletexCustomerCardId": {
+            "description": "The account's customer card in Tripletex AS.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "tripletexCustomerNumber": {
+            "description": "The account's customer number in Tripletex AS: pass it as clientTripletexCustomerNumber to connect to this account.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "ClientAccountCandidates": {
+        "properties": {
+          "candidates": {
+            "description": "The accounts the office could connect this customer card to.",
+            "items": {
+              "$ref": "#/components/schemas/ClientAccountCandidate"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ClientAccountForAccountingOffice": {
+        "properties": {
+          "accountingOfficeCompanyId": {
+            "description": "The accounting office's own company id.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "administratorEmail": {
+            "type": "string"
+          },
+          "administratorFirstName": {
+            "type": "string"
+          },
+          "administratorLastName": {
+            "type": "string"
+          },
+          "attachMigrationHelper": {
+            "description": "Also give Flyttehjelpen access, as the client import's Migration Help column does.",
+            "type": "boolean"
+          },
+          "companyType": {
+            "description": "Company type, e.g. AS or ENK. Defaults to the office's customer card's, otherwise AS.",
+            "type": "string"
+          },
+          "invoiceEmail": {
+            "type": "string"
+          },
+          "invoiceReceiver": {
+            "description": "Who receives Tripletex's invoice. Required. CLIENT also needs invoiceEmail and the client's administrator.",
+            "enum": [
+              "CLIENT",
+              "ACCOUNTING_OFFICE"
+            ],
+            "type": "string"
+          },
+          "invoiceStartDate": {
+            "description": "Defaults to today.",
+            "type": "string"
+          },
+          "modules": {
+            "description": "Sales modules, as in the client import: the package, the voucher module and any additional modules.",
+            "items": {
+              "description": "Sales modules, as in the client import: the package, the voucher module and any additional modules.",
+              "type": "string"
+            },
+            "maxItems": 2147483647,
+            "minItems": 1,
+            "type": "array"
+          },
+          "name": {
+            "description": "The client's name. When the office's existing customer card for the client is reused, the account takes the card's name instead; the result says which.",
+            "type": "string"
+          },
+          "officeCustomerCardId": {
+            "description": "The office's own customer card for the client, if it has one. Must have the client's organisation number.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "officeEmployeeIds": {
+            "description": "The office employees who get access to the client. The first one creates the account as the office.",
+            "items": {
+              "description": "The office employees who get access to the client. The first one creates the account as the office.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "organizationNumber": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ClientAccountForAccountingOfficeResult": {
+        "properties": {
+          "accountingOfficeCustomerCardId": {
+            "description": "The office's customer card in Tripletex AS, 0 if it has none.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "clientCompanyId": {
+            "description": "The new client account's company id.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "migrationHelperAttached": {
+            "description": "Whether Flyttehjelpen was given access too.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name the account was created with: the reused office card's, or the one given.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "officeCardReused": {
+            "description": "Whether the office's existing customer card for the client was reused.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "officeCustomerCardId": {
+            "description": "The office's customer card for the client.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "officeEmployeeIdsWithAccess": {
+            "description": "The office employees given access to the client.",
+            "items": {
+              "description": "The office employees given access to the client.",
+              "format": "int64",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "tripletexCustomerCardId": {
+            "description": "The client's customer card in Tripletex AS.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ClientClaims": {
         "properties": {
           "claims": {
@@ -15819,6 +16580,22 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ClientCompanyEmployee": {
+        "description": "An employee of a client company, offered for report sharing.",
+        "properties": {
+          "displayName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "ClientContext": {
@@ -16359,6 +17136,14 @@
               "READ_ONLY_ACCESS",
               "READ_ONLY_ACCESS_FREE",
               "PRO",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION",
               "BILAG_0_500_AUTOMATION",
               "BILAG_501_1000_AUTOMATION",
               "BILAG_1001_2000_AUTOMATION",
@@ -16443,6 +17228,14 @@
               "READ_ONLY_ACCESS",
               "READ_ONLY_ACCESS_FREE",
               "PRO",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION",
               "BILAG_0_500_AUTOMATION",
               "BILAG_501_1000_AUTOMATION",
               "BILAG_1001_2000_AUTOMATION",
@@ -16518,6 +17311,27 @@
         "readOnly": true,
         "type": "object"
       },
+      "ClientOverviewBankAccount": {
+        "properties": {
+          "accountId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "displayName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Earliest date the account is known to have existed: its first posting, its first bank statement or its creation, whichever is earliest. Null when none of them is known.",
+            "example": "2026-07-15",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "ClientOverviewContext": {
         "properties": {
           "accountManagerDisplayName": {
@@ -16546,6 +17360,11 @@
             "type": "boolean"
           },
           "canAccessVat": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canConfigurePeriods": {
+            "description": "Whether the user may change the client's balance reconciliation period length",
             "readOnly": true,
             "type": "boolean"
           },
@@ -16703,6 +17522,14 @@
               "READ_ONLY_ACCESS",
               "READ_ONLY_ACCESS_FREE",
               "PRO",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION",
               "BILAG_0_500_AUTOMATION",
               "BILAG_501_1000_AUTOMATION",
               "BILAG_1001_2000_AUTOMATION",
@@ -17085,7 +17912,7 @@
               "format": "int64",
               "type": "integer"
             },
-            "maxItems": 2147483647,
+            "maxItems": 5000,
             "minItems": 1,
             "type": "array"
           },
@@ -17345,6 +18172,10 @@
             "readOnly": true,
             "type": "number"
           },
+          "numberOfSharesOpeningBalance": {
+            "readOnly": true,
+            "type": "number"
+          },
           "numberOfSharesRedeemed": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
           },
@@ -17413,6 +18244,10 @@
           },
           "reduceSharesTransactionCode": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
+          },
+          "shareCapitalClosingBalance": {
+            "readOnly": true,
+            "type": "number"
           },
           "shareClass": {
             "enum": [
@@ -17578,7 +18413,9 @@
               "16",
               "17",
               "18",
-              "19"
+              "19",
+              "20",
+              "21"
             ],
             "type": "string"
           },
@@ -18154,6 +18991,60 @@
             "readOnly": true,
             "type": "number"
           },
+          "customerCategory1Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCategory2Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCategory3Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "departmentId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension1Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension2Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension3Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
           "noOfCurrencies": {
             "format": "int64",
             "readOnly": true,
@@ -18165,6 +19056,24 @@
             "type": "integer"
           },
           "noOfQuantity2Units": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "productId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "projectCategoryId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "projectId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
             "format": "int64",
             "readOnly": true,
             "type": "integer"
@@ -18200,6 +19109,12 @@
           "quantity2ProductUnit": {
             "readOnly": true,
             "type": "string"
+          },
+          "vendorId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -20814,6 +21729,11 @@
           "organizationNumber": {
             "type": "string"
           },
+          "organizationNumberLocked": {
+            "description": "True when the organisation number can no longer be changed by the company: it is verified, has sent invoices, has submitted an a-melding, or has the AutoInvoice EHF module on. Only set on GET /company/current, and only when named in fields.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "phoneNumber": {
             "type": "string"
           },
@@ -21746,6 +22666,13 @@
             "type": "string",
             "writeOnly": true
           },
+          "clientTripletexCustomerNumber": {
+            "description": "The client account's customer number at Tripletex, which the client sees in My subscription. Connects to exactly that account, and only if it has the customer card's organisation number. Never creates an account.",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer",
+            "writeOnly": true
+          },
           "createApiToken": {
             "description": "Creates a token for the admin user. The accounting office could also use their tokens so you might not need this.",
             "type": "boolean",
@@ -22123,7 +23050,7 @@
           },
           "openTasks": {
             "items": {
-              "$ref": "#/components/schemas/DebtCollectionTaskDTO"
+              "$ref": "#/components/schemas/DebtCollectionTaskReferenceDTO"
             },
             "readOnly": true,
             "type": "array"
@@ -22135,11 +23062,12 @@
           "status": {
             "enum": [
               "NONE",
-              "ACTIVE",
-              "PAUSED",
-              "DISPUTED",
+              "SOFT_REMINDER",
+              "REMINDER",
+              "NOTICE_OF_DEBT_COLLECTION",
+              "DEBT_COLLECTION",
+              "LEGAL_PROCEEDINGS",
               "SURVEILLANCE",
-              "REJECTED",
               "WITHDRAWN",
               "ENDED"
             ],
@@ -22176,13 +23104,9 @@
         "readOnly": true,
         "type": "object"
       },
-      "DebtCollectionTaskDTO": {
+      "DebtCollectionTaskReferenceDTO": {
         "properties": {
           "id": {
-            "readOnly": true,
-            "type": "string"
-          },
-          "schema": {
             "readOnly": true,
             "type": "string"
           },
@@ -22503,9 +23427,9 @@
         "description": "The department for this account. If multiple industries are activated, all postings on this account will be towards this department. If multiple industries are not activated, it is ignored.",
         "properties": {
           "businessActivityTypeId": {
-            "description": "The business activity type for this department. Business activity types can be used to separate between different tax categories, and between general and primary VAT reports.  A posting done with a given departmentId, will belong to the business activity type defined on the department.",
+            "description": "The business activity type for this department. Business activity types can be used to separate between different tax categories, and between general and primary VAT reports.  A posting done with a given departmentId, will belong to the business activity type defined on the department. Can be set when the company has \"The enterprise has several industries\" on. 0 or left out leaves it unchanged; it is cleared in the department form.",
             "format": "int32",
-            "readOnly": true,
+            "minimum": 0,
             "type": "integer"
           },
           "changes": {
@@ -25115,6 +26039,7 @@
             "type": "string"
           },
           "email": {
+            "description": "The employee's email, which is also the login username. On update it can only be set when the employee has no email and no system access; otherwise it cannot be changed.",
             "type": "string"
           },
           "employeeCategory": {
@@ -27041,11 +27966,25 @@
             "readOnly": true,
             "type": "string"
           },
+          "bankrupt": {
+            "readOnly": true,
+            "type": "boolean"
+          },
           "city": {
             "readOnly": true,
             "type": "string"
           },
           "email": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeCountCategory": {
+            "description": "NONE_REGISTERED: no employees registered. ONE_TO_FOUR: Brreg hides the exact number. EXACT: see numberOfEmployees.",
+            "enum": [
+              "NONE_REGISTERED",
+              "ONE_TO_FOUR",
+              "EXACT"
+            ],
             "readOnly": true,
             "type": "string"
           },
@@ -27056,7 +27995,17 @@
             "readOnly": true,
             "type": "array"
           },
+          "foundingDate": {
+            "readOnly": true,
+            "type": "string"
+          },
           "id": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "lastSubmittedAnnualAccountsYear": {
+            "description": "Year of the last submitted annual accounts.",
             "format": "int32",
             "readOnly": true,
             "type": "integer"
@@ -27065,11 +28014,27 @@
             "readOnly": true,
             "type": "string"
           },
+          "naceCode": {
+            "description": "Main industry code (NACE), code only.",
+            "readOnly": true,
+            "type": "string"
+          },
           "name": {
             "readOnly": true,
             "type": "string"
           },
+          "numberOfEmployees": {
+            "description": "Exact number of employees. Empty when Brreg hides the number (1-4 employees) or when no employees are registered, see employeeCountCategory.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
           "orgNumber": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "organisationForm": {
+            "description": "Organisation form code, e.g. AS or ENK.",
             "readOnly": true,
             "type": "string"
           },
@@ -27077,9 +28042,23 @@
             "readOnly": true,
             "type": "string"
           },
+          "registeredInBusinessRegister": {
+            "description": "Registered in the Register of Business Enterprises (Foretaksregisteret).",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "registrationDate": {
             "readOnly": true,
             "type": "string"
+          },
+          "underCompulsoryDissolution": {
+            "description": "Under compulsory dissolution or compulsory winding-up.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "underDissolution": {
+            "readOnly": true,
+            "type": "boolean"
           },
           "vatRegistered": {
             "readOnly": true,
@@ -27423,8 +28402,19 @@
             "readOnly": true,
             "type": "integer"
           },
+          "keepShareholderLoan": {
+            "$ref": "#/components/schemas/ShareholderRegisterData"
+          },
           "numberOfShares": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
+          },
+          "numberOfSharesAfter": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "numberOfSharesBefore": {
+            "readOnly": true,
+            "type": "number"
           },
           "reduceSharesAcquiringCompanyIsin": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
@@ -28747,6 +29737,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "employeeNumber": {
+            "description": "Employee number, empty if none",
+            "readOnly": true,
+            "type": "string"
+          },
           "pictureId": {
             "description": "Picture ID for the employee",
             "format": "int32",
@@ -29009,6 +30004,31 @@
         "readOnly": true,
         "type": "object"
       },
+      "FlaggedVoucher": {
+        "description": "The anomaly id and client company of each voucher counted in voucherCount",
+        "properties": {
+          "anomalyCount": {
+            "description": "Postings flagged on this voucher, so a selection counts discrepancies without re-reading the group",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "anomalyId": {
+            "description": "The voucher's anomaly id",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "companyId": {
+            "description": "The client company the voucher belongs to",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "FlexSummary": {
         "properties": {
           "change": {
@@ -29206,20 +30226,6 @@
           }
         ],
         "description": "Block containing a list of follow-up questions",
-        "type": "object"
-      },
-      "FollowUpStatusDTO": {
-        "properties": {
-          "code": {
-            "readOnly": true,
-            "type": "string"
-          },
-          "displayName": {
-            "readOnly": true,
-            "type": "string"
-          }
-        },
-        "readOnly": true,
         "type": "object"
       },
       "ForestFundData": {
@@ -29592,6 +30598,60 @@
             "readOnly": true,
             "type": "number"
           },
+          "customerCategory1Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCategory2Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerCategory3Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "departmentId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension1Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension2Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "freeDimension3Id": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
           "noOfCurrencies": {
             "format": "int64",
             "readOnly": true,
@@ -29603,6 +30663,24 @@
             "type": "integer"
           },
           "noOfQuantity2Units": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "productId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "projectCategoryId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "projectId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
             "format": "int64",
             "readOnly": true,
             "type": "integer"
@@ -29638,6 +30716,12 @@
           "quantity2ProductUnit": {
             "readOnly": true,
             "type": "string"
+          },
+          "vendorId": {
+            "description": "Set when the sums are grouped by this dimension and the postings have a value.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -35462,6 +36546,7 @@
               "POSTING_RULE",
               "AUTOPAY",
               "ZTL",
+              "FOLIO",
               "REMIT",
               "OPEN_POST",
               "CREDIT_NOTE",
@@ -40457,6 +41542,11 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "isPlanned": {
+            "description": "True if the invoice was created from the project's invoicing plan. Stays true after the invoice is charged.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "kid": {
             "description": "KID - Kundeidentifikasjonsnummer.",
             "type": "string"
@@ -40656,7 +41746,8 @@
               "EHF",
               "EFAKTURA",
               "AVTALEGIRO",
-              "DEBT_COLLECTOR"
+              "DEBT_COLLECTOR",
+              "MANUAL"
             ],
             "readOnly": true,
             "type": "string"
@@ -40877,6 +41968,10 @@
             "type": "boolean"
           },
           "hasModuleSmsNotification": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isAmiliEmbeddedDebtCollector": {
             "readOnly": true,
             "type": "boolean"
           },
@@ -41515,6 +42610,10 @@
       },
       "InvoiceSummary": {
         "properties": {
+          "actionRequired": {
+            "readOnly": true,
+            "type": "boolean"
+          },
           "amountExVat": {
             "readOnly": true,
             "type": "number"
@@ -41601,6 +42700,15 @@
             "readOnly": true,
             "type": "integer"
           },
+          "followUpActor": {
+            "enum": [
+              "TRIPLETEX",
+              "DEBT_COLLECTOR",
+              "AMILI"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
           "followUpDate": {
             "readOnly": true,
             "type": "string"
@@ -41608,9 +42716,6 @@
           "followUpDueDate": {
             "readOnly": true,
             "type": "string"
-          },
-          "followUpStatus": {
-            "$ref": "#/components/schemas/FollowUpStatusDTO"
           },
           "id": {
             "format": "int64",
@@ -41771,6 +42876,7 @@
               "DIVIDEND_TRANSACTION_TYPE",
               "INVESTMENT_ORG_NO",
               "INVESTMENT_COMPANY_NAME",
+              "SHAREHOLDER_KEEP_SHAREHOLDER_LOAN",
               "NEW_ISSUE_PAID_UP_SHARE_CAPITAL",
               "NEW_ISSUE_PAID_UP_PREMIUM",
               "NEW_ISSUE_NO_OF_SHARES",
@@ -41813,6 +42919,9 @@
               "FOUND_ISSUE_PAID_UP_SHARE_CAPITAL",
               "FOUND_ISSUE_PAID_UP_PREMIUM",
               "FOUND_ISSUE_NO_OF_SHARES",
+              "SPLIT_PAID_UP_SHARE_CAPITAL",
+              "SPLIT_PAID_UP_PREMIUM",
+              "SPLIT_NO_OF_SHARES",
               "ADD_SHARES_SHAREHOLDER_NO_OF_SHARES",
               "NEW_ISSUE_SHAREHOLDER_NO_OF_SHARES",
               "NEW_ISSUE_CONVERSION_OF_RECEIVABLES_SHAREHOLDER_NO_OF_SHARES",
@@ -41828,6 +42937,7 @@
               "TAX_FREE_FOREIGN_COMPANY_SHAREHOLDER_NO_OF_SHARES",
               "MERGED_SHARE_CLASSES_SHAREHOLDER_NO_OF_SHARES",
               "FOUND_ISSUE_SHAREHOLDER_NO_OF_SHARES",
+              "SPLIT_SHAREHOLDER_NO_OF_SHARES",
               "ADD_SHARES_SHAREHOLDER_ACQUISITION_VALUE",
               "NEW_ISSUE_SHAREHOLDER_ACQUISITION_VALUE",
               "NEW_ISSUE_CONVERSION_OF_RECEIVABLES_SHAREHOLDER_ACQUISITION_VALUE",
@@ -41845,6 +42955,7 @@
               "FOUND_ISSUE_SHAREHOLDER_ACQUISITION_VALUE",
               "INVESTMENT_SHAREHOLDER_NO_OF_SHARES",
               "INVESTMENT_SHAREHOLDER_ACQUISITION_VALUE",
+              "SPLIT_SHAREHOLDER_ACQUISITION_VALUE",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_ORG_NO",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_ISIN",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_SHARE_CLASS",
@@ -41950,6 +43061,7 @@
               "SendInvoicesToSmartScan",
               "AttestationPilotBanners",
               "UseSpringAIForDocumentScan",
+              "SilentAiInvoiceScan",
               "AiExpenseScanBackfill",
               "AiExpenseScanLive",
               "GlobalCache",
@@ -42071,7 +43183,6 @@
               "RemoveZendeskAndPointToHelpcenter",
               "ConsumerNameVisibilityTokenCreate",
               "CompanyIdModelLookup",
-              "ChatModelGeminiFlashLite",
               "ChatModelGemini35FlashLite",
               "ChatModelGPT4o",
               "ChatModelGPT41",
@@ -42191,6 +43302,9 @@
               "DynamicLaneConcurrency",
               "AllowSendingOrderConfirmationEmail",
               "DashboardWidgetMoving",
+              "DashboardNewWidgetsHighlight",
+              "DashboardReleasedWidgets",
+              "DashboardExampleDataPreview",
               "HourlistReportRowEntityPreload",
               "OcrMpsV2",
               "InnbetalingTotalIngest",
@@ -42205,7 +43319,6 @@
               "PurchasesAndModulesTab",
               "MonthlyFeesGroupAccrual",
               "EmailDomainBlacklist",
-              "TripletexInvoicingTab",
               "ReceiveVouchersByEmail",
               "ReceiveEhfInvoices",
               "ReceiveEfoNelfoInvoicesByFtp",
@@ -42224,6 +43337,7 @@
               "FabricAiOrderLinePredictionBatched",
               "McpClientAccountCreation",
               "McpStaffAccountCreation",
+              "AssistantActionIntents",
               "ApiDeferOrderLinePreliminaryInvoice",
               "CompanyMultiStateModuleSystemNew",
               "ProjectClosureDriftCheck",
@@ -42231,7 +43345,10 @@
               "SalaryRunSpecificationExtraPrefetch",
               "SalaryUnionDeductionHistoryByWageCode",
               "ApiAccessAnnotationFilter",
-              "AccountantClientAccessAuthorization"
+              "AccountantClientAccessAuthorization",
+              "AccountingOfficeClientAccessCheck",
+              "ZtlPreviousTransactionIgnorePrimaryIndex",
+              "ProductHasSupplierProductConnectedPrefetch"
             ],
             "readOnly": true,
             "type": "string"
@@ -44178,6 +45295,39 @@
         },
         "type": "object"
       },
+      "ListResponseAnomalyGroup": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyGroup"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ListResponseAnomalyOverviewClient": {
         "properties": {
           "count": {
@@ -45696,6 +46846,39 @@
         },
         "type": "object"
       },
+      "ListResponseClientCompanyEmployee": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ClientCompanyEmployee"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ListResponseClientImport": {
         "properties": {
           "count": {
@@ -45882,6 +47065,39 @@
           "values": {
             "items": {
               "$ref": "#/components/schemas/ClientModules"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseClientOverviewBankAccount": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOverviewBankAccount"
             },
             "readOnly": true,
             "type": "array"
@@ -52118,6 +53334,39 @@
         },
         "type": "object"
       },
+      "ListResponseProjectBudgetProductRow": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectBudgetProductRow"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ListResponseProjectBudgetStatus": {
         "properties": {
           "count": {
@@ -54053,6 +55302,72 @@
           "values": {
             "items": {
               "$ref": "#/components/schemas/RoleAssignment"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseRoleProxyEmployee": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/RoleProxyEmployee"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseRoleProxyTemplate": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/RoleProxyTemplate"
             },
             "readOnly": true,
             "type": "array"
@@ -56298,6 +57613,105 @@
           "values": {
             "items": {
               "$ref": "#/components/schemas/UserLicense"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseUserLicenseChangeDTO": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseChangeDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseUserLicenseTimelinePointDTO": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseTimelinePointDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseUserLicenseWithoutEmploymentDTO": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseWithoutEmploymentDTO"
             },
             "readOnly": true,
             "type": "array"
@@ -61764,6 +63178,35 @@
         },
         "type": "object"
       },
+      "OfficeClientAccess": {
+        "description": "The office's access to this account, one entry per card. Empty when the office has none, null when no office was named.",
+        "properties": {
+          "auditor": {
+            "description": "True for auditor access, false for accountant access.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "officeCustomerCardId": {
+            "description": "The office's customer card the access hangs on.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "officeCustomerCardName": {
+            "description": "The name on that card.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "officeCustomerNumber": {
+            "description": "That card's customer number in the office.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "OnDemandRoutePoint": {
         "properties": {
           "coordinate": {
@@ -62624,7 +64067,7 @@
             "type": "integer"
           },
           "orderLineId": {
-            "format": "int32",
+            "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
@@ -62805,6 +64248,53 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "OrgNumberAccountForStaff": {
+        "description": "The accounts, in customer number order.",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/ClientAccountCandidate"
+          },
+          "officeAccess": {
+            "description": "The office's access to this account, one entry per card. Empty when the office has none, null when no office was named.",
+            "items": {
+              "$ref": "#/components/schemas/OfficeClientAccess"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "OrgNumberAccountsForStaff": {
+        "properties": {
+          "accountingOfficeCompanyId": {
+            "description": "The named office's company id, or null when none was named.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountingOfficeName": {
+            "description": "The named office's name, or null when none was named.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "accounts": {
+            "description": "The accounts, in customer number order.",
+            "items": {
+              "$ref": "#/components/schemas/OrgNumberAccountForStaff"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "organizationNumber": {
+            "description": "The organisation number looked up, as nine digits.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "OtherCircumstancesOverview": {
@@ -65520,6 +67010,19 @@
             "readOnly": true,
             "type": "integer"
           },
+          "referenceType": {
+            "description": "What referenceId points at: the type a comment or attachment on this row is stored under",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "example": "ACCOUNT",
+            "readOnly": true,
+            "type": "string"
+          },
           "taxableAmount": {
             "description": "Ledger figure plus tillegg less fradrag; null when the row has no correction",
             "example": 16250.0,
@@ -65714,6 +67217,19 @@
             "readOnly": true,
             "type": "integer"
           },
+          "referenceType": {
+            "description": "What referenceId points at: the type a comment or attachment on this row is stored under",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "example": "ACCOUNT",
+            "readOnly": true,
+            "type": "string"
+          },
           "taxAuthoritiesSum": {
             "description": "Payroll tax sum from the tax authorities (A07)",
             "example": 15000.0,
@@ -65743,6 +67259,11 @@
             "readOnly": true,
             "type": "number"
           },
+          "correctionsCarriedForward": {
+            "description": "Whether the manual corrections were prefilled from the previous completed reconciliation",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "discrepancy": {
             "description": "Discrepancy between ledger sum and A-melding sum",
             "example": 500.0,
@@ -65760,6 +67281,11 @@
             "readOnly": true,
             "type": "string"
           },
+          "previousCorrectionsAvailable": {
+            "description": "Whether the previous completed reconciliation has manual corrections that can be carried forward",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "sections": {
             "$ref": "#/components/schemas/PayrollTaxSections"
           },
@@ -65768,6 +67294,14 @@
             "example": 15000.0,
             "readOnly": true,
             "type": "number"
+          },
+          "zoneRates": {
+            "description": "The ordinary payroll tax rate for every zone, in zone order. Only set when includeZoneRates is true",
+            "items": {
+              "$ref": "#/components/schemas/PayrollTaxZoneInfo"
+            },
+            "readOnly": true,
+            "type": "array"
           }
         },
         "type": "object"
@@ -65838,10 +67372,23 @@
           },
           "referenceId": {
             "description": "Key the row's comments and attachments are stored under",
-            "example": -101,
+            "example": 2,
             "format": "int64",
             "readOnly": true,
             "type": "integer"
+          },
+          "referenceType": {
+            "description": "What referenceId points at: the type a comment or attachment on this row is stored under",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "example": "PAYROLL_TAX_SUM",
+            "readOnly": true,
+            "type": "string"
           },
           "taxAuthoritiesSum": {
             "description": "Sum from the tax authorities (A07)",
@@ -65860,7 +67407,7 @@
         "type": "object"
       },
       "PayrollTaxZoneInfo": {
-        "description": "Aggregated payroll tax zone information",
+        "description": "The ordinary payroll tax rate for every zone, in zone order. Only set when includeZoneRates is true",
         "properties": {
           "amountBasisSum": {
             "description": "Sum of amount basis for the zone",
@@ -67754,6 +69301,7 @@
                 "KILLBILL_RECURRING_INVOICING",
                 "KILLBILL_DEFER_ORDER_LINE_PRELIMINARY_INVOICE",
                 "RELIONS_COOKING",
+                "RELIONS_TASTING",
                 "NONE"
               ],
               "type": "string",
@@ -71178,8 +72726,12 @@
         "type": "object"
       },
       "ProjectBudgetOrderLines": {
-        "description": "Order lines/costs to save, if changed",
         "properties": {
+          "canCreateProduct": {
+            "description": "Whether the current user may create a product from the product dropdown",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "canEdit": {
             "description": "Whether the current user may edit the budget",
             "readOnly": true,
@@ -71211,6 +72763,16 @@
           },
           "internalProject": {
             "description": "Whether the project is internal",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "moduleElectro": {
+            "description": "Whether the Electro module is enabled (product dropdown price columns)",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "moduleNrf": {
+            "description": "Whether the NRF module is enabled (product dropdown price columns)",
             "readOnly": true,
             "type": "boolean"
           },
@@ -71272,6 +72834,68 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "ProjectBudgetProductRow": {
+        "properties": {
+          "currencyCode": {
+            "description": "Product currency code, empty when it is the company currency",
+            "readOnly": true,
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Product number followed by name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "displayNumber": {
+            "description": "Product number, or the EL/NRF/producer number when it has none",
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Product id",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "listPriceCurrency": {
+            "description": "List price in the product currency",
+            "readOnly": true,
+            "type": "number"
+          },
+          "markupListPrice": {
+            "description": "Discount-agreement markup on the list price, in percent",
+            "readOnly": true,
+            "type": "number"
+          },
+          "markupNetPrice": {
+            "description": "Discount-agreement markup on the net price, in percent; omitted unless the user may see product net prices",
+            "readOnly": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "Product name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "netPriceCurrency": {
+            "description": "Net (purchase) price in the product currency; omitted unless the user may see product net prices",
+            "readOnly": true,
+            "type": "number"
+          },
+          "salesPriceExclVatCurrency": {
+            "description": "Sales price excluding VAT in the product currency",
+            "readOnly": true,
+            "type": "number"
+          },
+          "supplierName": {
+            "description": "Supplier name, empty for the company's own products",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "ProjectBudgetStatus": {
@@ -71513,6 +73137,7 @@
         "type": "object"
       },
       "ProjectBudgetTotals": {
+        "description": "Project-level budget totals",
         "properties": {
           "budgetNetAmountCurrency": {
             "description": "Net budget = income − costs (project-level)",
@@ -71535,9 +73160,11 @@
             "type": "number"
           }
         },
+        "readOnly": true,
         "type": "object"
       },
       "ProjectBudgetTravelExpenses": {
+        "description": "Travels & expenses to save, if changed",
         "properties": {
           "budgetExpensesCurrency": {
             "description": "Budgeted expenses (cost), in project currency",
@@ -71551,6 +73178,11 @@
             "description": "Budgeted net (income - expenses), read-only",
             "readOnly": true,
             "type": "number"
+          },
+          "canCreateProduct": {
+            "description": "Whether the current user may create a product from the product dropdown",
+            "readOnly": true,
+            "type": "boolean"
           },
           "canEdit": {
             "description": "Whether the current user may edit the budget",
@@ -71567,6 +73199,16 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "moduleElectro": {
+            "description": "Whether the Electro module is enabled (product dropdown price columns)",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "moduleNrf": {
+            "description": "Whether the NRF module is enabled (product dropdown price columns)",
+            "readOnly": true,
+            "type": "boolean"
           },
           "moduleProduct": {
             "description": "Whether the product module is enabled (product picker)",
@@ -74536,6 +76178,8 @@
               "format": "int32",
               "type": "integer"
             },
+            "maxItems": 100,
+            "minItems": 0,
             "type": "array"
           },
           "endTime": {
@@ -74578,6 +76222,8 @@
               "format": "int32",
               "type": "integer"
             },
+            "maxItems": 100,
+            "minItems": 0,
             "type": "array"
           },
           "endTime": {
@@ -74585,6 +76231,7 @@
           },
           "periodCount": {
             "format": "int32",
+            "maximum": 366,
             "minimum": 1,
             "type": "integer"
           },
@@ -75083,6 +76730,11 @@
             "readOnly": true,
             "type": "string"
           },
+          "supersededDate": {
+            "description": "When a change of the client's period length retired this reconciliation. Null for a reconciliation that is part of the current layout. A superseded reconciliation keeps its data and its archived report and is listed by the archive and the log only.",
+            "readOnly": true,
+            "type": "string"
+          },
           "term": {
             "description": "The term of the reconciliation",
             "format": "int32",
@@ -75544,6 +77196,77 @@
         "readOnly": true,
         "type": "object"
       },
+      "ReconciliationPeriodSettings": {
+        "description": "The period length a client's balance is reconciled in, for the previous and the current year",
+        "properties": {
+          "canChange": {
+            "description": "Whether the user may change the period length",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "customerId": {
+            "description": "The client",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "years": {
+            "description": "The period length in effect per year, previous year first",
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationPeriodYearSetting"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ReconciliationPeriodSettingsRequest": {
+        "description": "A period length for one client from one year on",
+        "properties": {
+          "customerId": {
+            "description": "The client",
+            "format": "int64",
+            "type": "integer"
+          },
+          "fromYear": {
+            "description": "The first year the period length applies to: the previous year or the current",
+            "format": "int32",
+            "type": "integer"
+          },
+          "periodMonths": {
+            "description": "Months per period: 1, 2, 3, 4, 6 or 12. Twelve means the balance is reconciled only through the annual balance reconciliation",
+            "format": "int32",
+            "maximum": 12,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ReconciliationPeriodYearSetting": {
+        "description": "The period length in effect per year, previous year first",
+        "properties": {
+          "explicit": {
+            "description": "True when this year has a setting of its own; false when it inherits an earlier year's setting or the default",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "periodMonths": {
+            "description": "Months per period: 1, 2, 3, 4, 6 or 12; twelve means only the annual balance reconciliation",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "year": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "ReconciliationPeriodsOverview": {
         "properties": {
           "maxYear": {
@@ -75595,7 +77318,15 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "canConfigurePeriods": {
+            "description": "Whether the user may change the client's balance reconciliation period length",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "isCooking": {
+            "type": "boolean"
+          },
+          "isTasting": {
             "type": "boolean"
           }
         },
@@ -75816,6 +77547,18 @@
             "format": "int64",
             "readOnly": true,
             "type": "integer"
+          },
+          "referenceType": {
+            "description": "What referenceId points at",
+            "enum": [
+              "ACCOUNT",
+              "ACCOUNT_NUMBER",
+              "VAT_TYPE",
+              "PAYMENT_DATE",
+              "PAYROLL_TAX_SUM"
+            ],
+            "readOnly": true,
+            "type": "string"
           }
         },
         "readOnly": true,
@@ -76896,7 +78639,12 @@
             "type": "number"
           },
           "interests": {
-            "description": "The interests part of the reminder.",
+            "description": "The interests part of the reminder, in the company's currency.",
+            "readOnly": true,
+            "type": "number"
+          },
+          "interestsCurrency": {
+            "description": "The interests part of the reminder, in the invoice currency.",
             "readOnly": true,
             "type": "number"
           },
@@ -78942,6 +80690,17 @@
             "readOnly": true,
             "type": "array"
           },
+          "customerId": {
+            "description": "Customer ID of the customer, the ID its customer card is keyed by (/execute/customerMenu?customerId=...). Not stored on the agreement.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerName": {
+            "description": "Name of the customer, so a row reads without a second lookup. Not stored on the agreement.",
+            "readOnly": true,
+            "type": "string"
+          },
           "customerTripletexCompanyId": {
             "description": "The tripletexCompany ID of the customer the commission is earned on. Cannot be changed once the agreement exists.",
             "format": "int64",
@@ -78966,9 +80725,25 @@
             ],
             "type": "string"
           },
+          "feeTypeName": {
+            "description": "What the fee type is called in Tripletex, in the language of whoever is asking — what to call it when naming it to a person. Three of the five are not what the enum name suggests: USAGE is Transaksjoner, STARTUP is Etablering, and ZTL is Bankintegrasjon. Pass feeType, say this.",
+            "readOnly": true,
+            "type": "string"
+          },
           "id": {
             "format": "int64",
             "type": "integer"
+          },
+          "resellerCustomerId": {
+            "description": "Customer ID of the reseller — resellers are customers of Tripletex too. Not stored on the agreement.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "resellerName": {
+            "description": "Name of the reseller, so a row reads without a second lookup. Not stored on the agreement.",
+            "readOnly": true,
+            "type": "string"
           },
           "resellerTripletexCompanyId": {
             "description": "The tripletexCompany ID of the reseller earning the commission. Cannot be changed once the agreement exists.",
@@ -79594,6 +81369,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperAccountingOfficeForStaff": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AccountingOfficeForStaff"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperAccountingPeriod": {
         "properties": {
           "value": {
@@ -79692,6 +81475,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/AgriculturalAccountOverview"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAiInvoiceScanConfig": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AiInvoiceScanConfig"
           }
         },
         "type": "object"
@@ -79800,6 +81591,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperAnomalyGroupDetail": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyGroupDetail"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperApiConsumer": {
         "properties": {
           "value": {
@@ -79868,6 +81667,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/AssetOverview"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAssistantActionIntent": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AssistantActionIntent"
           }
         },
         "type": "object"
@@ -80422,6 +82229,22 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ClientAccessTemplate"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperClientAccountCandidates": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ClientAccountCandidates"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperClientAccountForAccountingOfficeResult": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ClientAccountForAccountingOfficeResult"
           }
         },
         "type": "object"
@@ -81929,6 +83752,17 @@
         },
         "type": "object"
       },
+      "ResponseWrapperListAiInvoiceScanConfig": {
+        "properties": {
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/AiInvoiceScanConfig"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperListAssistantAgent": {
         "properties": {
           "value": {
@@ -82342,6 +84176,17 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ListResponseNotePost"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperListRoleCatalogueCategory": {
+        "properties": {
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/RoleCatalogueCategory"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -83084,6 +84929,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/OrderOffer"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperOrgNumberAccountsForStaff": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/OrgNumberAccountsForStaff"
           }
         },
         "type": "object"
@@ -83892,6 +85745,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/ReconciliationPeriod"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperReconciliationPeriodSettings": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ReconciliationPeriodSettings"
           }
         },
         "type": "object"
@@ -85237,6 +87098,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperUserLicenseEmployeeHistoryDTO": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/UserLicenseEmployeeHistoryDTO"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperUserLicenseSettingsDTO": {
         "properties": {
           "value": {
@@ -85281,6 +87150,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/VatReportTypes"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperVatReturnControls": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/VatReturnControls"
           }
         },
         "type": "object"
@@ -85793,6 +87670,7 @@
               "YEAR_TO_DATE",
               "LAST_YEAR_PERIOD",
               "LAST_YEAR_CHANGE",
+              "LAST_YEAR_CHANGE_PERCENT",
               "LAST_YEAR_YEAR_TO_DATE",
               "LAST_YEAR_YEAR_TO_DATE_CHANGE",
               "BUDGET",
@@ -85978,6 +87856,71 @@
           },
           "subject": {
             "$ref": "#/components/schemas/Employee"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "RoleCatalogueCategory": {
+        "properties": {
+          "id": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/RoleCatalogueEntry"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "value": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RoleCatalogueEntry": {
+        "properties": {
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/RoleCatalogueEntry"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "excludes": {
+            "description": "Roles that cannot be held with this one; granting it revokes them",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "grantedByCategory": {
+            "description": "Whether ticking the whole category grants this role",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "value": {
+            "readOnly": true,
+            "type": "string"
           }
         },
         "readOnly": true,
@@ -86195,6 +88138,92 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "RoleProxyAssignment": {
+        "properties": {
+          "customerIds": {
+            "description": "Customers (clients or subsidiaries of the agent) where the roles change. At least one.",
+            "items": {
+              "description": "Customers (clients or subsidiaries of the agent) where the roles change. At least one.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "employeeIds": {
+            "description": "Employees of the agent whose roles change. At least one.",
+            "items": {
+              "description": "Employees of the agent whose roles change. At least one.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "roleIds": {
+            "description": "Role ids to add, remove or set. At least one to add or remove; empty or absent on set lists the employees with no roles.",
+            "items": {
+              "description": "Role ids to add, remove or set. At least one to add or remove; empty or absent on set lists the employees with no roles.",
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "RoleProxyEmployee": {
+        "properties": {
+          "displayName": {
+            "description": "The employee's first and last name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "employee": {
+            "$ref": "#/components/schemas/Employee"
+          },
+          "isRobot": {
+            "description": "True if the employee is a robot, such as an API consumer",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "roleIds": {
+            "description": "Roles granted to employee",
+            "items": {
+              "description": "Roles granted to employee",
+              "format": "int32",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "RoleProxyTemplate": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "roleIds": {
+            "description": "The roles of the template that the proxy catalogue allows",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "RoleTemplate": {
@@ -86870,6 +88899,11 @@
           "rate": {
             "type": "number"
           },
+          "refYear": {
+            "description": "The year the vacation allowance was earned. Required for salary types for vacation allowance, and ignored for other salary types.",
+            "format": "int32",
+            "type": "integer"
+          },
           "salaryType": {
             "$ref": "#/components/schemas/SalaryType"
           },
@@ -87263,10 +89297,6 @@
             "type": "string"
           },
           "nameAndNumber": {
-            "readOnly": true,
-            "type": "string"
-          },
-          "phoneNumberSmsCertified": {
             "readOnly": true,
             "type": "string"
           },
@@ -88783,7 +90813,23 @@
               "ANOMALY_DETECTION",
               "FOLIO",
               "MINI_50",
-              "MINI_150"
+              "MINI_150",
+              "VOUCHER_2027_500",
+              "VOUCHER_2027_1000",
+              "VOUCHER_2027_2000",
+              "VOUCHER_2027_4000",
+              "VOUCHER_2027_8000",
+              "VOUCHER_2027_UNLIMITED",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_mini",
+              "BILAG_0_150_mini",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION"
             ],
             "readOnly": true,
             "type": "string"
@@ -88936,7 +90982,23 @@
               "ANOMALY_DETECTION",
               "FOLIO",
               "MINI_50",
-              "MINI_150"
+              "MINI_150",
+              "VOUCHER_2027_500",
+              "VOUCHER_2027_1000",
+              "VOUCHER_2027_2000",
+              "VOUCHER_2027_4000",
+              "VOUCHER_2027_8000",
+              "VOUCHER_2027_UNLIMITED",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_mini",
+              "BILAG_0_150_mini",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION"
             ],
             "readOnly": true,
             "type": "string"
@@ -89651,6 +91713,22 @@
               "UP_TO_5000_VOUCHERS_AUTOMATION",
               "UP_TO_10000_VOUCHERS_AUTOMATION",
               "UNLIMITED_VOUCHERS_AUTOMATION",
+              "VOUCHER_2027_500",
+              "VOUCHER_2027_1000",
+              "VOUCHER_2027_2000",
+              "VOUCHER_2027_4000",
+              "VOUCHER_2027_8000",
+              "VOUCHER_2027_UNLIMITED",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_mini",
+              "BILAG_0_150_mini",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION",
               "LOGISTICS",
               "MIKRO",
               "MINI_50",
@@ -91134,6 +93212,7 @@
               "DIVIDEND_TRANSACTION_TYPE",
               "INVESTMENT_ORG_NO",
               "INVESTMENT_COMPANY_NAME",
+              "SHAREHOLDER_KEEP_SHAREHOLDER_LOAN",
               "NEW_ISSUE_PAID_UP_SHARE_CAPITAL",
               "NEW_ISSUE_PAID_UP_PREMIUM",
               "NEW_ISSUE_NO_OF_SHARES",
@@ -91176,6 +93255,9 @@
               "FOUND_ISSUE_PAID_UP_SHARE_CAPITAL",
               "FOUND_ISSUE_PAID_UP_PREMIUM",
               "FOUND_ISSUE_NO_OF_SHARES",
+              "SPLIT_PAID_UP_SHARE_CAPITAL",
+              "SPLIT_PAID_UP_PREMIUM",
+              "SPLIT_NO_OF_SHARES",
               "ADD_SHARES_SHAREHOLDER_NO_OF_SHARES",
               "NEW_ISSUE_SHAREHOLDER_NO_OF_SHARES",
               "NEW_ISSUE_CONVERSION_OF_RECEIVABLES_SHAREHOLDER_NO_OF_SHARES",
@@ -91191,6 +93273,7 @@
               "TAX_FREE_FOREIGN_COMPANY_SHAREHOLDER_NO_OF_SHARES",
               "MERGED_SHARE_CLASSES_SHAREHOLDER_NO_OF_SHARES",
               "FOUND_ISSUE_SHAREHOLDER_NO_OF_SHARES",
+              "SPLIT_SHAREHOLDER_NO_OF_SHARES",
               "ADD_SHARES_SHAREHOLDER_ACQUISITION_VALUE",
               "NEW_ISSUE_SHAREHOLDER_ACQUISITION_VALUE",
               "NEW_ISSUE_CONVERSION_OF_RECEIVABLES_SHAREHOLDER_ACQUISITION_VALUE",
@@ -91208,6 +93291,7 @@
               "FOUND_ISSUE_SHAREHOLDER_ACQUISITION_VALUE",
               "INVESTMENT_SHAREHOLDER_NO_OF_SHARES",
               "INVESTMENT_SHAREHOLDER_ACQUISITION_VALUE",
+              "SPLIT_SHAREHOLDER_ACQUISITION_VALUE",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_ORG_NO",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_ISIN",
               "FUSION_TAX_FREE_TRANSFERRING_COMPANY_SHARE_CLASS",
@@ -93280,6 +95364,11 @@
               "EcdsaP384Sha384",
               "Ed25519"
             ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "autoPayCertificateKeyId": {
+            "description": "Key id of the certificate AutoPay signs its responses with. Use it to fetch that certificate.",
             "readOnly": true,
             "type": "string"
           },
@@ -101124,7 +103213,15 @@
               "INTERVAL_2001_3500",
               "INTERVAL_3501_5000",
               "INTERVAL_5001_10000",
-              "INTERVAL_UNLIMITED"
+              "INTERVAL_UNLIMITED",
+              "INTERVAL_2027_500",
+              "INTERVAL_2027_1000",
+              "INTERVAL_2027_2000",
+              "INTERVAL_2027_4000",
+              "INTERVAL_2027_8000",
+              "INTERVAL_2027_UNLIMITED",
+              "INTERVAL_0_50_MINI",
+              "INTERVAL_0_150_MINI"
             ],
             "type": "string"
           },
@@ -101175,6 +103272,11 @@
       },
       "TripletexAccountCreation": {
         "properties": {
+          "acceptsClientTripletexCustomerNumber": {
+            "description": "True if accessToClient takes clientTripletexCustomerNumber.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "accountantAssociationStatus": {
             "description": "State of the accountant (or similar) and his customer with respect to the accountant having or getting access to the client.",
             "enum": [
@@ -101265,6 +103367,11 @@
           "isTripletexSuspended": {
             "description": "Flag for checking if Tripletex is currently suspended.",
             "type": "boolean"
+          },
+          "otherAccountWithOwnOrgNumberName": {
+            "description": "Name of another Tripletex account with the logged-in company's organisation number that already holds the client's accountant or auditor relation. Connecting is not possible while it does.",
+            "readOnly": true,
+            "type": "string"
           },
           "tripletexSalesModuleTypes": {
             "description": "List containing the Tripletex sales modules types.",
@@ -101446,6 +103553,22 @@
                 "UP_TO_5000_VOUCHERS_AUTOMATION",
                 "UP_TO_10000_VOUCHERS_AUTOMATION",
                 "UNLIMITED_VOUCHERS_AUTOMATION",
+                "VOUCHER_2027_500",
+                "VOUCHER_2027_1000",
+                "VOUCHER_2027_2000",
+                "VOUCHER_2027_4000",
+                "VOUCHER_2027_8000",
+                "VOUCHER_2027_UNLIMITED",
+                "VOUCHER_2027_500_AUTOMATION",
+                "VOUCHER_2027_1000_AUTOMATION",
+                "VOUCHER_2027_2000_AUTOMATION",
+                "VOUCHER_2027_4000_AUTOMATION",
+                "VOUCHER_2027_8000_AUTOMATION",
+                "VOUCHER_2027_UNLIMITED_AUTOMATION",
+                "BILAG_0_50_mini",
+                "BILAG_0_150_mini",
+                "BILAG_0_50_MINI_AUTOMATION",
+                "BILAG_0_150_MINI_AUTOMATION",
                 "LOGISTICS",
                 "MIKRO",
                 "MINI_50",
@@ -102787,6 +104910,14 @@
       },
       "UserLicense": {
         "properties": {
+          "accessConflicts": {
+            "description": "Only from :supportUpdate: how the requested change disagrees with the employee's access. Information only.",
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseAccessConflict"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
           "companyId": {
             "description": "Company id.",
             "format": "int64",
@@ -102868,6 +104999,311 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "UserLicenseAccessConflict": {
+        "description": "How a requested user license change disagrees with the employee's access. Information only: the change is not refused for it.",
+        "properties": {
+          "access": {
+            "description": "The access that gives the category, when there is one",
+            "enum": [
+              "LOGIN",
+              "PAYSLIP_ONLY_LOGIN",
+              "REGINFO",
+              "LOGISTICS"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "accessEndDate": {
+            "description": "The last day the access gives the category, when it ends",
+            "readOnly": true,
+            "type": "string"
+          },
+          "message": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "ACCESS_STILL_GRANTS",
+              "ACCESS_DOES_NOT_GRANT",
+              "EMPLOYEE_NO_ACCESS",
+              "NOT_ADVANCE_INVOICED",
+              "FUTURE_SPLIT_UNDONE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "userCategory": {
+            "description": "The user category the conflict is about",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "UserLicenseChangeDTO": {
+        "description": "How one employee's user licenses differ between two dates",
+        "properties": {
+          "changeType": {
+            "enum": [
+              "ADDED",
+              "REMOVED",
+              "CHANGED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "discountPercentageAfter": {
+            "description": "Discount for rankAfter on toDate. Only for Tripletex support",
+            "readOnly": true,
+            "type": "number"
+          },
+          "discountPercentageBefore": {
+            "description": "Discount for rankBefore on fromDate. Only for Tripletex support",
+            "readOnly": true,
+            "type": "number"
+          },
+          "employeeId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "entitlementPath": {
+            "description": "Where to change the employee's access. Only in the company's own context",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lastEditedBy": {
+            "description": "Only for Tripletex support",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lastEditedTimestamp": {
+            "description": "Only for Tripletex support",
+            "readOnly": true,
+            "type": "string"
+          },
+          "monthlyRateAfter": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "monthlyRateBefore": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "monthlyRateDelta": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "rankAfter": {
+            "description": "Position among the paying users on toDate",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "rankBefore": {
+            "description": "Position among the paying users on fromDate; price steps and discounts apply by it",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "reason": {
+            "description": "For CHANGED: CATEGORY, or PRICE when the categories are the same",
+            "enum": [
+              "CATEGORY",
+              "PRICE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "userCategoriesAfter": {
+            "items": {
+              "format": "int32",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userCategoriesBefore": {
+            "items": {
+              "format": "int32",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userLicenseIds": {
+            "items": {
+              "format": "int64",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userType": {
+            "enum": [
+              "EMPLOYEE",
+              "CONTACT"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "UserLicenseEmployeeHistoryDTO": {
+        "description": "One employee's user licenses and what they cost over a date range",
+        "properties": {
+          "employeeId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "entitlementPath": {
+            "description": "Where to change the employee's access. Only in the company's own context",
+            "readOnly": true,
+            "type": "string"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseEmployeePeriodDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userLicenses": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseEmployeeLicenseDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userType": {
+            "enum": [
+              "EMPLOYEE",
+              "CONTACT"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UserLicenseEmployeeLicenseDTO": {
+        "description": "One of an employee's user licenses",
+        "properties": {
+          "endDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "isStartupPaid": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "lastEditedBy": {
+            "description": "Only for Tripletex support",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lastEditedTimestamp": {
+            "description": "Only for Tripletex support",
+            "readOnly": true,
+            "type": "string"
+          },
+          "startDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "userCategory": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "userCategoryName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "userLicenseId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "userLicenseStatus": {
+            "enum": [
+              "TERMINATED",
+              "ACTIVE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "UserLicenseEmployeePeriodDTO": {
+        "description": "A run of days on one user license at the same monthly fee",
+        "properties": {
+          "discountPercentage": {
+            "description": "Only for Tripletex support. Discount on the list price for this rank: company discount plus the user fee discount for the rank range. monthlyFee is the list price less this discount, rounded to whole kroner. Left out together with listFee when they do not account for monthlyFee, which happens when the fee is zeroed outside the price matrix",
+            "readOnly": true,
+            "type": "number"
+          },
+          "fromDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "listFee": {
+            "description": "Only for Tripletex support. Monthly list price for the category before discounts. Not set for logistics and Sticos Faghjelp, nor when the list price and discount do not account for monthlyFee",
+            "readOnly": true,
+            "type": "number"
+          },
+          "monthlyFee": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Position among the paying users in this period; 0 for a free user",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "toDate": {
+            "description": "Inclusive",
+            "readOnly": true,
+            "type": "string"
+          },
+          "userCategory": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "userCategoryName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "userLicenseId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "UserLicenseExport": {
@@ -102956,6 +105392,191 @@
             "type": "boolean"
           }
         },
+        "type": "object"
+      },
+      "UserLicenseSupportUpdate": {
+        "properties": {
+          "clearEndDate": {
+            "description": "True to remove the end date so the license runs on. Not together with endDate.",
+            "type": "boolean"
+          },
+          "endDate": {
+            "description": "New end date (yyyy-MM-dd). Not before the license's start date.",
+            "type": "string"
+          },
+          "fromDate": {
+            "description": "With userCategory: change the category only from this date (yyyy-MM-dd). The license ends the day before, and a new license in the new category starts on it, with the old end date; the startup fee stays paid through the old license. Not together with endDate, clearEndDate or isStartupPaid.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The user license id.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "isStartupPaid": {
+            "description": "Whether the startup fee for this license is paid.",
+            "type": "boolean"
+          },
+          "userCategory": {
+            "description": "New user category: 1, 2, 3, 5 or 7.",
+            "format": "int32",
+            "maximum": 7,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "UserLicenseTimelineGroupDTO": {
+        "description": "User licenses on a timeline point, grouped by category, price or employee",
+        "properties": {
+          "count": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeId": {
+            "description": "Set when grouped by employee",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "key": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "label": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "monthlyFee": {
+            "description": "Monthly fee per license, set when grouped by price",
+            "readOnly": true,
+            "type": "number"
+          },
+          "monthlyRate": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "userCategory": {
+            "description": "Set when grouped by category or price",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "userType": {
+            "description": "Set when grouped by employee or user type",
+            "enum": [
+              "EMPLOYEE",
+              "CONTACT"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "UserLicenseTimelinePointDTO": {
+        "description": "User licenses on one day, or for one month the state on its last day in the range",
+        "properties": {
+          "date": {
+            "description": "First day of the period this point covers",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/UserLicenseTimelineGroupDTO"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "snapshotDate": {
+            "description": "The day the counts and monthly rate are taken from",
+            "readOnly": true,
+            "type": "string"
+          },
+          "totalCount": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "totalMonthlyRate": {
+            "description": "Sum of the monthly fees of the licenses active on snapshotDate",
+            "readOnly": true,
+            "type": "number"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "UserLicenseWithoutEmploymentDTO": {
+        "description": "A user license held today by someone with no employment that is current or upcoming",
+        "properties": {
+          "employeeId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "employeeName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employmentEndDate": {
+            "description": "Last day of the most recent employment. Not set for NEVER_EMPLOYED",
+            "readOnly": true,
+            "type": "string"
+          },
+          "entitlementPath": {
+            "description": "Where to remove the employee's access. Only in the company's own context",
+            "readOnly": true,
+            "type": "string"
+          },
+          "monthlyFee": {
+            "description": "What the licenses held today cost per month. Not the saving from removing them: user fees are ranked, so removing a holder re-ranks the ones below",
+            "readOnly": true,
+            "type": "number"
+          },
+          "reason": {
+            "description": "NEVER_EMPLOYED when no employment was ever registered, EMPLOYMENT_ENDED when the last one is over",
+            "enum": [
+              "NEVER_EMPLOYED",
+              "EMPLOYMENT_ENDED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "userCategories": {
+            "items": {
+              "format": "int32",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userLicenseIds": {
+            "items": {
+              "format": "int64",
+              "readOnly": true,
+              "type": "integer"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "userType": {
+            "description": "CONTACT is an external person such as the accountant, who has no employment by design",
+            "enum": [
+              "EMPLOYEE",
+              "CONTACT"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "UserPilotFeature": {
@@ -103122,6 +105743,48 @@
             ],
             "readOnly": true,
             "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "VatCodeMismatch": {
+        "description": "Postings in the term whose VAT code differs from the code the account is locked to. Empty means none.",
+        "properties": {
+          "accountId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "accountNumber": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountVatTypeId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "firstPostingId": {
+            "description": "Lowest posting id in the group, to open an example.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "postingCount": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "postingVatTypeId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -103338,6 +106001,30 @@
         },
         "type": "object"
       },
+      "VatRateChange": {
+        "description": "VAT codes used in the term whose percentage on the last day differs from the first day. Empty means none.",
+        "properties": {
+          "percentageAtEnd": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "percentageAtStart": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "vatTypeId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "vatTypeNumber": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "VatReconciliationOverview": {
         "properties": {
           "groups": {
@@ -103431,6 +106118,43 @@
           "hasPrimaryIndustry": {
             "readOnly": true,
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "VatReturnControls": {
+        "properties": {
+          "endExclusive": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "start": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "vatCodeMismatches": {
+            "description": "Postings in the term whose VAT code differs from the code the account is locked to. Empty means none.",
+            "items": {
+              "$ref": "#/components/schemas/VatCodeMismatch"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "vatRateChanges": {
+            "description": "VAT codes used in the term whose percentage on the last day differs from the first day. Empty means none.",
+            "items": {
+              "$ref": "#/components/schemas/VatRateChange"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "vatSettingChanges": {
+            "description": "Edits to the VAT settings or the term size settings made during the term. Empty means none.",
+            "items": {
+              "$ref": "#/components/schemas/VatSettingChange"
+            },
+            "readOnly": true,
+            "type": "array"
           }
         },
         "type": "object"
@@ -103839,6 +106563,35 @@
           },
           "vatCode": {
             "description": "The vatCode",
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "VatSettingChange": {
+        "description": "Edits to the VAT settings or the term size settings made during the term. Empty means none.",
+        "properties": {
+          "changedAt": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "recordId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "VAT_SETTINGS",
+              "TERM_SIZE"
+            ],
+            "readOnly": true,
             "type": "string"
           }
         },
@@ -105303,6 +108056,11 @@
             "type": "boolean",
             "writeOnly": true
           },
+          "hasTaskFoxDeveloperAccess": {
+            "description": "Whether the logged-in user is a listed Task Fox team member. Per user, unlike the company-level inTaskFoxDeveloperMode.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "hasWarehouseColumn": {
             "readOnly": true,
             "type": "boolean"
@@ -105495,7 +108253,23 @@
               "ANOMALY_DETECTION",
               "FOLIO",
               "MINI_50",
-              "MINI_150"
+              "MINI_150",
+              "VOUCHER_2027_500",
+              "VOUCHER_2027_1000",
+              "VOUCHER_2027_2000",
+              "VOUCHER_2027_4000",
+              "VOUCHER_2027_8000",
+              "VOUCHER_2027_UNLIMITED",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_mini",
+              "BILAG_0_150_mini",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION"
             ],
             "readOnly": true,
             "type": "string"
@@ -105739,6 +108513,11 @@
             "type": "string"
           },
           "emailArrivalTime": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "fabricAiAutomationReason": {
+            "description": "FabricAI's machine-readable reason its Progressive Automation did not complete the invoice, e.g. ITEM_PREDICTION_PROBABILITY_LESS_THAN_TRESHOLD. Open set; null when FabricAI automated it or did not evaluate it.",
             "readOnly": true,
             "type": "string"
           },
@@ -106239,6 +109018,11 @@
             },
             "readOnly": true,
             "type": "array"
+          },
+          "vouchersLeftForJsp": {
+            "description": "Whether selected vouchers only the classic form can take were left where the user selected them. A yes/no, not a count.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "vouchersLeftOut": {
             "description": "Whether more of the selected vouchers did not fit: ones that queue would have accepted past its cap of 150, or any after the first 1500 selected, which are not evaluated. A yes/no, not a count.",
@@ -109896,7 +112680,7 @@
     },
     "description": "    [ Base URL: https://tripletex.no/v2 ]\n\n## Usage\n\n-   **Download the spec** [openapi.json](/v2/openapi.json) file, it is a [OpenAPI Specification](https://github.com/OAI/OpenAPI-Specification).\n\n-   **Generating a client** can easily be done using tools like [openapi-generator](https://github.com/OpenAPITools/openapi-generator) or [swagger-codegen](https://github.com/swagger-api/swagger-codegen) or other that accepts [OpenAPI Specification](https://github.com/OAI/OpenAPI-Specification) specs.\n\n    -   For swagger codegen it is recommended to use the flag: **--removeOperationIdPrefix**.\n        Unique operation ids are about to be introduced to the spec, and this ensures forward compatibility - and results in less verbose generated code.\n\n-   **Please note** that Tripletex offers several packages. Some endpoints are only supported in certain packages. You can see the Tripletex packages [here](https://www.tripletex.no/priser/).\n\n## Overview\n\n-   Partial resource updating is done using the `PUT` method with optional fields instead of the `PATCH` method.\n\n-   **Actions** or **commands** are represented in our RESTful path with a prefixed `:`. Example: `/hours/123/:approve`.\n\n-   **Summaries** or **aggregated** results are represented in our RESTful path with a prefixed `>`. Example: `/hours/>thisWeeksBillables`.\n\n-   **Request ID** is a key found in all responses in the header with the name `x-tlx-request-id`. For validation and error responses it is also in the response body. If additional log information is absolutely necessary, our support division can locate the key value.\n\n-   **version** This is a revision number found on all persisted resources. If included, it will prevent your PUT/POST from overriding any updates to the resource since your GET.\n\n-   **Date** follows the **[ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)** standard, meaning the format `YYYY-MM-DD`.\n\n-   **DateTime** follows the **[ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)** standard, meaning the format `YYYY-MM-DDThh:mm:ss`.\n\n-   **Searching** is done by entering values in the optional fields for each API call. The values fall into the following categories: range, in, exact and like.\n\n-   **Missing fields** or even **no response data** can occur because result objects and fields are filtered on authorization.\n\n-   **See [GitHub](https://github.com/Tripletex/tripletex-api2) for more documentation, code examples, changelog and more.**\n\n-   **See [Tripletex for developers](https://developer.tripletex.no/) for more practical information, support, updates and access form**\n\n## Authentication\n\n[Read more here](https://developer.tripletex.no/docs/documentation/authentication-and-tokens/)\n\n-   **Tokens:** The Tripletex API uses 3 different tokens\n\n    -   **consumerToken** is a token provided to the consumer by Tripletex after the API 2.0 registration is completed.\n\n    -   **employeeToken** is a token created by an administrator in your Tripletex account via the user settings and the tab \"API access\". Each employee token must be given a set of entitlements.\n\n    -   **sessionToken** is the token from `/token/session/:create` which requires a consumerToken and an employeeToken created with the same consumer token, but not an authentication header.\n\n-   **Authentication** is done via [Basic access authentication](https://en.wikipedia.org/wiki/Basic_access_authentication)\n\n    -   **username** is used to specify what company to access.\n\n        -   `0` or blank means the company of the employee.\n\n        -   Any other value means accountant clients. Use `/company/>withLoginAccess` to get a list of those.\n\n    -   **password** is the **sessionToken**.\n\n    -   If you need to create the header yourself use `Authorization: Basic <encoded token>` where `encoded token` is the string `<target company id or 0>:<your session token>` Base64 encoded.\n\n## Tags\n\n-   `[BETA]` This is a beta endpoint and can be subject to change.\n-   `[DEPRECATED]` Deprecated means that we intend to remove/change this feature or capability in a future \"major\" API release. We therefore discourage all use of this feature/capability.\n\n## Fields\n\nUse the `fields` parameter to specify which fields should be returned. This also supports fields from sub elements, done via `<field>(<subResourceFields>)`. `*` means all fields for that resource. Example values:\n\n-   `project,activity,hours` returns `{project:..., activity:...., hours:...}`.\n-   just `project` returns `\"project\" : { \"id\": 12345, \"url\": \"tripletex.no/v2/projects/12345\" }`.\n-   `project(*)` returns `\"project\" : { \"id\": 12345 \"name\":\"ProjectName\" \"number.....startDate\": \"2013-01-07\" }`.\n-   `project(name)` returns `\"project\" : { \"name\":\"ProjectName\" }`.\n-   All resources and some subResources : `*,activity(name),employee(*)`.\n\n## Sorting\n\nUse the `sorting` parameter to specify sorting. It takes a comma separated list, where a `-` prefix denotes descending. You can sort by sub object with the following format: `<field>.<subObjectField>`. Example values:\n\n-   `date`\n-   `project.name`\n-   `project.name, -date`\n\n## Changes\n\nTo get the changes for a resource, `changes` have to be explicitly specified as part of the `fields` parameter, e.g. `*,changes`.\nThere are currently two types of change available:\n\n-   `CREATE` for when the resource was created\n-   `UPDATE` for when the resource was updated\n\n**NOTE**\n\n> For objects created prior to October 24th 2018 the list may be incomplete, but will always contain the CREATE and the last change (if the object has been changed after creation).\n\n## Rate limiting\n\nRate limiting is performed on the API calls for an employee for each API consumer. Status regarding the rate limit is returned as headers:\n\n-   `X-Rate-Limit-Limit` - The number of allowed requests in the current period.\n-   `X-Rate-Limit-Remaining` - The number of remaining requests.\n-   `X-Rate-Limit-Reset` - The number of seconds left in the current period.\n\nOnce the rate limit is hit, all requests will return HTTP status code `429` for the remainder of the current period.\n\n## Response envelope\n\n#### Multiple values\n\n```json\n{\n  \"fullResultSize\": ###, // {number} [DEPRECATED]\n  \"from\": ###, // {number} Paging starting from\n  \"count\": ###, // {number} Paging count\n  \"versionDigest\": \"###\", // {string} Hash of full result, null if no result\n  \"values\": [...{...object...},{...object...},{...object...}...]\n}\n```\n\n#### Single value\n\n```json\n{\n  \"value\": {...single object...}\n}\n```\n\n## WebHook envelope\n\n```json\n{\n  \"subscriptionId\": ###, // Subscription id\n  \"event\": \"object.verb\", // As listed from /v2/event/\n  \"id\": ###, // Id of object this event is for\n  \"value\": {... single object, null if object.deleted ...}\n}\n```\n\n## Error/warning envelope\n\n```json\n{\n  \"status\": ###, // {number} HTTP status code\n  \"code\": #####, // {number} internal status code of event\n  \"message\": \"###\", // {string} Basic feedback message in your language\n  \"link\": \"###\", // {string} Link to doc\n  \"developerMessage\": \"###\", // {string} More technical message\n  \"validationMessages\": [ // {array} List of validation messages, can be null\n    {\n      \"field\": \"###\", // {string} Name of field\n      \"message\": \"###\" // {string} Validation message for field\n    }\n  ],\n  \"requestId\": \"###\" // {string} Same as x-tlx-request-id\n}\n```\n\n## Status codes / Error codes\n\n-   **200 OK**\n-   **201 Created** - From POSTs that create something new.\n-   **204 No Content** - When there is no answer, ex: \"/:anAction\" or DELETE.\n-   **400 Bad request** -\n    -   **4000** Bad Request Exception\n    -   **11000** Illegal Filter Exception\n    -   **12000** Path Param Exception\n-   **401 Unauthorized** - When authentication is required and has failed or has not yet been provided\n    -   **3000** Authentication Exception\n-   **403 Forbidden** - When AuthorisationManager says no.\n    -   **9000** Security Exception\n-   **404 Not Found** - For resources that does not exist.\n    -   **6000** Not Found Exception\n    -   **6001** Object Deleted Exception - the object existed and was deleted, as opposed to never having existed.\n-   **409 Conflict** - Such as an edit conflict between multiple simultaneous updates\n    -   **7000** Object Exists Exception\n    -   **8000** Revision Exception\n    -   **10000** Locked Exception\n    -   **14000** Duplicate entry\n    -   **24000** Voucher Not Openable As Incoming Invoice Exception\n    -   **25000** State Conflict Exception - the object exists, but its current state does not allow the operation.\n-   **422 Bad Request** - For Required fields or things like malformed payload.\n    -   **15000** Value Validation Exception\n    -   **16000** Mapping Exception\n    -   **17000** Sorting Exception\n    -   **18000** Validation Exception\n    -   **21000** Param Exception\n    -   **22000** Invalid JSON Exception\n    -   **23000** Result Set Too Large Exception\n-   **429 Too Many Requests** - Request rate limit hit\n-   **500 Internal Error** - Unexpected condition was encountered and no more specific message is suitable\n    -   **1000** Exception\n",
     "title": "Tripletex API",
-    "version": "2.75.15"
+    "version": "2.75.17"
   },
   "openapi": "3.0.1",
   "paths": {
@@ -115120,6 +117904,15 @@
             }
           },
           {
+            "description": "If true, return only customers that can be anonymized. These will always be private persons, where the newest posting date is older than the legal retention period.",
+            "in": "query",
+            "name": "onlyAnonymizable",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
             "description": "From index",
             "in": "query",
             "name": "from",
@@ -115213,6 +118006,43 @@
           }
         ],
         "summary": "Create customer. Related customer addresses may also be created.",
+        "tags": [
+          "customer"
+        ]
+      }
+    },
+    "/customer/:anonymize": {
+      "put": {
+        "operationId": "CustomerAnonymize_anonymize",
+        "requestBody": {
+          "content": {
+            "application/json; charset=utf-8": {
+              "schema": {
+                "items": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "description": "IDs of the customers to anonymize.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "successful operation"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "Anonymize customers by ID, at most 100 per call. If any of the customers cannot be anonymized, none are.",
         "tags": [
           "customer"
         ]
@@ -141473,6 +144303,14 @@
             }
           },
           {
+            "description": "List of IDs",
+            "in": "query",
+            "name": "invoiceIds",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "Equals",
             "in": "query",
             "name": "customerId",
@@ -143240,6 +146078,40 @@
         ]
       }
     },
+    "/salary/payrollTax/reconciliation/{reconciliationId}/corrections/carryForward": {
+      "post": {
+        "operationId": "SalaryPayrollTaxReconciliationCorrectionsCarryForward_postCorrectionsCarryForward",
+        "parameters": [
+          {
+            "description": "The reconciliation id",
+            "in": "path",
+            "name": "reconciliationId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "successfully created"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "Prefill the manual corrections from the previous completed reconciliation; does nothing once corrections exist",
+        "tags": [
+          "salary/payrollTax/reconciliation"
+        ]
+      }
+    },
     "/salary/payrollTax/reconciliation/{reconciliationId}/overview": {
       "get": {
         "operationId": "SalaryPayrollTaxReconciliationOverview_getOverview",
@@ -143252,6 +146124,15 @@
             "schema": {
               "format": "int64",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Include the ordinary payroll tax rate for every zone",
+            "in": "query",
+            "name": "includeZoneRates",
+            "schema": {
+              "default": false,
+              "type": "boolean"
             }
           },
           {
@@ -144733,6 +147614,102 @@
         ]
       }
     },
+    "/salary/transaction/:createSalaryRun": {
+      "post": {
+        "operationId": "SalaryTransactionCreateSalaryRun_createSalaryRun",
+        "parameters": [
+          {
+            "description": "Must be between 1900-2100. Defaults to current year.",
+            "in": "query",
+            "name": "year",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Must be between 1-12. Defaults to current month.",
+            "in": "query",
+            "name": "month",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Voucher date. Defaults to today, or to the last day of the month for historical salary runs.",
+            "in": "query",
+            "name": "date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Description of the salary run.",
+            "in": "query",
+            "name": "description",
+            "schema": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          {
+            "description": "With historical salary runs you can update the wage system with information dated before the opening balance.",
+            "in": "query",
+            "name": "isHistorical",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Add the salary lines Tripletex creates by default for the period, such as fixed salary, vacation pay and deductions from the employee's salary settings. When false, only the tax deduction is added.",
+            "in": "query",
+            "name": "addDefaultSpecifications",
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; charset=utf-8": {
+              "schema": {
+                "items": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "description": "IDs of the employees to create payslips for.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseWrapperSalaryTransaction"
+                }
+              }
+            },
+            "description": "successfully created"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "[BETA] Create a new salary run for the given employees. Payslips are created with Tripletex's automatically calculated salary lines, which are recalculated as lines are added. Use :addPayslip to add an employee with several employments in the period. Tax deductions are always calculated.",
+        "tags": [
+          "salary/transaction"
+        ]
+      }
+    },
     "/salary/transaction/{id}": {
       "delete": {
         "operationId": "SalaryTransaction_delete",
@@ -144808,6 +147785,122 @@
           }
         ],
         "summary": "Find salary transaction by ID.",
+        "tags": [
+          "salary/transaction"
+        ]
+      }
+    },
+    "/salary/transaction/{id}/:addPayslip": {
+      "put": {
+        "operationId": "SalaryTransactionAddPayslip_addPayslip",
+        "parameters": [
+          {
+            "description": "Element ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ID of the employee to add.",
+            "in": "query",
+            "name": "employeeId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ID of the employment to pay salary for. Required only when the employee has several employments in the salary transaction's period.",
+            "in": "query",
+            "name": "employmentId",
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Add the salary lines Tripletex creates by default for the period. When false, only the tax deduction is added.",
+            "in": "query",
+            "name": "addDefaultSpecifications",
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseWrapperPayslip"
+                }
+              }
+            },
+            "description": "successful operation"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "[BETA] Add a payslip for an employee to an open salary transaction.",
+        "tags": [
+          "salary/transaction"
+        ]
+      }
+    },
+    "/salary/transaction/{id}/:addSpecification": {
+      "put": {
+        "description": "A list of all the company's salary types can be found at the endpoint salary/type. ",
+        "operationId": "SalaryTransactionAddSpecification_addSpecification",
+        "parameters": [
+          {
+            "description": "Element ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; charset=utf-8": {
+              "schema": {
+                "$ref": "#/components/schemas/SalarySpecification"
+              }
+            }
+          },
+          "description": "JSON representing the new object to be created. Should not have ID and version set.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseWrapperSalarySpecification"
+                }
+              }
+            },
+            "description": "successful operation"
+          }
+        },
+        "security": [
+          {
+            "tokenAuthScheme": []
+          }
+        ],
+        "summary": "[BETA] Add a salary line to a payslip on an open salary transaction. The payslip is given by payslip.id, and rate, count and salaryType are required. For salary types for vacation allowance, refYear is required too. Inactive salary types and salary types that require supplement information are not supported.",
         "tags": [
           "salary/transaction"
         ]
@@ -145098,7 +148191,7 @@
             "tokenAuthScheme": []
           }
         ],
-        "summary": "Find salary type corresponding with sent data.",
+        "summary": "Find salary type corresponding with sent data. To get a simple list of all salary types in the company, use a 'fields' parameter: salary/type?fields=name,number,id",
         "tags": [
           "salary/type"
         ]
@@ -156306,6 +159399,10 @@
       "name": "accountingOffice/reconciliations"
     },
     {
+      "description": "The period length an accounting office reconciles a client's balance in",
+      "name": "accountingOffice/reconciliations/periodSettings"
+    },
+    {
       "description": "API for query permissions per customer",
       "name": "accountingOffice/reconciliations/permissions"
     },
@@ -156315,10 +159412,6 @@
     },
     {
       "description": "Project budget tab API for internal use",
-      "name": "internal/project/budget"
-    },
-    {
-      "description": "Project budget tab batch save for internal use",
       "name": "internal/project/budgetTab"
     },
     {
