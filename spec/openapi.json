@@ -338,6 +338,15 @@
             "description": "Optional comment from the registrant.",
             "type": "string"
           },
+          "dayHours": {
+            "description": "Days whose hours in the hour list were set instead of the standard time, e.g. 4 hours on a day the employee worked half of; 0 registers nothing that day. Affects only the hours registered, never the quota or the statistics. On read: the days set, empty when none. On write: absent or null keeps what is stored (a new absence gets none); an array replaces it, and an empty one clears it. Each date within the period (an end date is required), each at most once, hours 0-24 with at most two decimal places, a period of at most 92 days; not on historical absences.",
+            "items": {
+              "$ref": "#/components/schemas/AbsenceDayHours"
+            },
+            "maxItems": 92,
+            "minItems": 0,
+            "type": "array"
+          },
           "department": {
             "description": "Name of the employee's department.",
             "readOnly": true,
@@ -360,6 +369,11 @@
           },
           "hourRegistrationIncomplete": {
             "description": "Whether hours that should have been auto-registered for this absence are missing. Computed on read; drives the Needs action status alongside quotaExceeded, and false for decided (approved/rejected) absences.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hoursLocked": {
+            "description": "Whether some of the absence's hours in the time sheet can no longer change: the week or month is approved, the period is locked, or the hours are invoiced or paid out. The absence cannot be deleted then, and an edit that would remove or change those hours is refused, until the time sheet is reopened. Extending the absence or correcting its comment is still possible.",
             "readOnly": true,
             "type": "boolean"
           },
@@ -563,6 +577,29 @@
             "description": "Whether the login company is an IA (inkluderende arbeidsliv) company. False if the company has no absence settings.",
             "readOnly": true,
             "type": "boolean"
+          },
+          "isStatutoryLimitEnforced": {
+            "description": "Whether an absence past the self-certification or care-days quota is refused rather than warned about. True if the company has no absence settings.",
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "AbsenceDayHours": {
+        "description": "Hours on one day.",
+        "properties": {
+          "date": {
+            "description": "The day, ISO date.",
+            "type": "string"
+          },
+          "hours": {
+            "description": "Hours that day, 0-24 with at most two decimal places. 0 means none.",
+            "exclusiveMaximum": false,
+            "exclusiveMinimum": false,
+            "maximum": 24,
+            "minimum": 0,
+            "type": "number"
           }
         },
         "type": "object"
@@ -754,6 +791,11 @@
             "format": "int32",
             "readOnly": true,
             "type": "integer"
+          },
+          "exceededMessage": {
+            "description": "When start and end dates are given: the message a save of that absence would be refused with when the company enforces the statutory limits (isStatutoryLimitEnforced), worked out by the same rules as the save. Null when the absence keeps within its quota. The form shows it as an error only with the setting on; without it the warnings stay as they are.",
+            "readOnly": true,
+            "type": "string"
           },
           "hasRemainingPeriods": {
             "description": "Whether the employee still has at least one egenmelding period left.",
@@ -977,6 +1019,10 @@
           "id": {
             "format": "int64",
             "type": "integer"
+          },
+          "isStatutoryLimitEnforced": {
+            "description": "Whether the self-certification and care-days quotas are enforced. When true, an absence past the quota is refused; when false, it is saved and flagged for the manager.",
+            "type": "boolean"
           },
           "selfCertificationDaysPerPeriod": {
             "description": "Number of self-certified days allowed per period.",
@@ -1250,6 +1296,20 @@
         "readOnly": true,
         "type": "object"
       },
+      "AbsenceWorkingHours": {
+        "description": "The hours an absence would take each day by default.",
+        "properties": {
+          "days": {
+            "description": "Every day of the period in date order, with the employee's standard time that day (0 on days off).",
+            "items": {
+              "$ref": "#/components/schemas/AbsenceDayHours"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "AccommodationAllowance": {
         "description": "Link to individual accommodation allowances.",
         "properties": {
@@ -1508,9 +1568,9 @@
             "type": "string"
           },
           "specificAdminIds": {
-            "description": "Specific admin IDs to grant access to.",
+            "description": "Specific admin IDs to grant access to, with accessType SPECIFIC. Only the caller and employees of the caller's company with the client account administrator role are allowed.",
             "items": {
-              "description": "Specific admin IDs to grant access to.",
+              "description": "Specific admin IDs to grant access to, with accessType SPECIFIC. Only the caller and employees of the caller's company with the client account administrator role are allowed.",
               "format": "int64",
               "type": "integer"
             },
@@ -1547,6 +1607,7 @@
       "AccountBalanceSheetRow": {
         "properties": {
           "accountId": {
+            "description": "Account id, or null in a consolidated (group) balance sheet for an account that is absent from this company's own chart - accountNumber/accountName identify it.",
             "format": "int64",
             "readOnly": true,
             "type": "integer"
@@ -1561,7 +1622,7 @@
             "type": "integer"
           },
           "accountUrl": {
-            "description": "Link to chart of accounts page for this account",
+            "description": "Link to chart of accounts page for this account, or null in a consolidated (group) balance sheet for an account that is absent from this company's own chart",
             "readOnly": true,
             "type": "string"
           },
@@ -1578,7 +1639,7 @@
             "type": "number"
           },
           "generalLedgerUrl": {
-            "description": "Link to general ledger page for this account",
+            "description": "Link to general ledger page for this account, or null in a consolidated (group) balance sheet",
             "readOnly": true,
             "type": "string"
           },
@@ -1600,6 +1661,8 @@
           },
           "reason": {
             "description": "Reason for blacklisting",
+            "maxLength": 1000,
+            "minLength": 0,
             "type": "string"
           },
           "type": {
@@ -1663,6 +1726,20 @@
         "properties": {
           "reason": {
             "description": "New reason for blacklisting; keeps the existing reason when null or blank",
+            "maxLength": 1000,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AccountBlacklistUpdateDTO": {
+        "description": "Request to change the reason of an account blacklist entry",
+        "properties": {
+          "reason": {
+            "description": "New reason for blacklisting; null or blank clears it",
+            "maxLength": 1000,
+            "minLength": 0,
             "type": "string"
           }
         },
@@ -4058,6 +4135,13 @@
             "readOnly": true,
             "type": "integer"
           },
+          "intercompanyId": {
+            "description": "The sister company in the corporate group this customer/supplier is linked to; null when it is not linked. A row with such a counterparty can be marked intercompany.",
+            "format": "int64",
+            "nullable": true,
+            "readOnly": true,
+            "type": "integer"
+          },
           "isInactive": {
             "type": "boolean"
           },
@@ -4928,6 +5012,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "intercompany": {
+            "description": "True when the row's postings are an intercompany transaction with a sister company.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "invoiceNumber": {
             "description": "Invoice number / external invoice reference (fakturareferanse).",
             "readOnly": true,
@@ -5053,6 +5142,10 @@
             "description": "Free dimension 3 id.",
             "format": "int64",
             "type": "integer"
+          },
+          "intercompany": {
+            "description": "Mark the row as intercompany: its postings get the sister company the row's customer or supplier is linked to as intercompanyId. Requires that link and the group to be in the KrrGroupFeatures pilot. Null or false means not intercompany.",
+            "type": "boolean"
           },
           "invoiceNumber": {
             "description": "Invoice number / external invoice reference (fakturareferanse). Max 100 characters.",
@@ -7085,6 +7178,21 @@
         },
         "type": "object"
       },
+      "AmiliSettings": {
+        "description": "Null unless Amili is the embedded debt collector and the company has Amili settings",
+        "properties": {
+          "isAutomaticFollowUp": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isSendReminderFirst": {
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "AnnualAccount": {
         "properties": {
           "changes": {
@@ -7250,6 +7358,8 @@
               "5",
               "6",
               "64",
+              "65",
+              "66",
               "255"
             ],
             "type": "string"
@@ -7511,11 +7621,257 @@
         "readOnly": true,
         "type": "object"
       },
+      "AnomalyAdminAccess": {
+        "properties": {
+          "hasAccess": {
+            "description": "Whether the caller may use the anomaly admin",
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyAdminAnomaly": {
+        "properties": {
+          "accountId": {
+            "description": "The ledger account the anomaly is on, null when there is none",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "accountName": {
+            "description": "Ledger account name, null when there is no account or it no longer exists",
+            "readOnly": true,
+            "type": "string"
+          },
+          "accountNumber": {
+            "description": "Ledger account number, null when there is no account or it no longer exists",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "amount": {
+            "description": "Flagged amount, null for check types without one",
+            "readOnly": true,
+            "type": "number"
+          },
+          "breach": {
+            "description": "UPPER or LOWER, null when not a limit breach",
+            "readOnly": true,
+            "type": "string"
+          },
+          "date": {
+            "description": "ISO date, the anomaly's posting date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "detectedAt": {
+            "description": "ISO date-time the aggregate was created, i.e. when the check found it. Null for a row without a create log",
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/AnomalyLimits"
+          },
+          "postingCount": {
+            "description": "Postings the anomaly rolls up",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "status": {
+            "description": "AnomalyStatus enum name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "Norwegian title",
+            "readOnly": true,
+            "type": "string"
+          },
+          "variantLabel": {
+            "description": "The Norwegian labels joined with a middle dot, null when it has none",
+            "readOnly": true,
+            "type": "string"
+          },
+          "voucherId": {
+            "description": "The voucher the anomaly's posting is on, null when there is none",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherNumber": {
+            "description": "Voucher number, null when there is no voucher or it no longer exists",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "voucherYear": {
+            "description": "Voucher year, null when there is no voucher or it no longer exists",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyAdminIdName": {
+        "description": "Who last changed it",
+        "properties": {
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "AnomalyChangeVatCode": {
         "properties": {
           "vatNumber": {
             "description": "VAT code number from allowedVatCodes. \"0\" removes the VAT code.",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyCheckAdmin": {
+        "properties": {
+          "beta": {
+            "description": "Whether the check is in beta",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "checkType": {
+            "description": "CheckType enum name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "One-sentence Norwegian description of what the check flags",
+            "readOnly": true,
+            "type": "string"
+          },
+          "hidden": {
+            "description": "Global switch: whether the check is hidden from customers without a company setting",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hiddenFor": {
+            "description": "Companies the check is explicitly hidden from, whatever the global switch says (the blacklist)",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCheckCompanyEntry"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "lastChange": {
+            "$ref": "#/components/schemas/AnomalyCheckLastChange"
+          },
+          "name": {
+            "description": "Short Norwegian name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "shownFor": {
+            "description": "Companies the check is explicitly shown to, whatever the global switch says (the whitelist)",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCheckCompanyEntry"
+            },
+            "readOnly": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyCheckCompanyEntry": {
+        "description": "Companies the check is explicitly hidden from, whatever the global switch says (the blacklist)",
+        "properties": {
+          "addedAt": {
+            "description": "When it was set, ISO-8601 with offset",
+            "readOnly": true,
+            "type": "string"
+          },
+          "addedBy": {
+            "$ref": "#/components/schemas/AnomalyAdminIdName"
+          },
+          "id": {
+            "description": "Company id",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Company name",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyCheckLastChange": {
+        "description": "Last change of the global switch from the row's audit trail, or null when the check has no row and follows the code default",
+        "properties": {
+          "changedAt": {
+            "description": "When the global switch was last changed, ISO-8601 with offset",
+            "readOnly": true,
+            "type": "string"
+          },
+          "changedBy": {
+            "$ref": "#/components/schemas/AnomalyAdminIdName"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyCheckStats": {
+        "properties": {
+          "eligibleCompanyCount": {
+            "description": "Companies with an active anomaly subscription",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "latest": {
+            "description": "The newest anomalies of this check, newest first",
+            "items": {
+              "$ref": "#/components/schemas/TriggeredAnomaly"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "triggeredCount": {
+            "description": "Open list entries of this check across the companies with an active subscription, counted like the customer list: one per client and group, archived left out",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "visibleCompanyCount": {
+            "description": "Eligible companies that see this check: their own setting, else the global switch",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyCheckUpdate": {
+        "properties": {
+          "hidden": {
+            "description": "Whether the check is hidden from customers",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -7589,10 +7945,81 @@
         },
         "type": "object"
       },
+      "AnomalyCompanyCheck": {
+        "properties": {
+          "checkType": {
+            "description": "CheckType enum name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "companySetting": {
+            "description": "The company's explicit setting, SHOWN or HIDDEN, null when it follows the global switch",
+            "readOnly": true,
+            "type": "string"
+          },
+          "globallyHidden": {
+            "description": "Whether the check is globally hidden from customers",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Short Norwegian name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "triggeredCount": {
+            "description": "Open list entries of this check the company has, counted like the customer list: one per group, archived left out",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "visible": {
+            "description": "Whether the company sees the check: its own setting, else the global switch",
+            "readOnly": true,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyCompanyCheckUpdate": {
+        "properties": {
+          "setting": {
+            "description": "SHOWN or HIDDEN sets the company's own setting, null removes it so the global switch applies. The key must be present",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AnomalyCompanyChecks": {
+        "properties": {
+          "checks": {
+            "description": "Every check type, in enum order",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCompanyCheck"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "company": {
+            "$ref": "#/components/schemas/AnomalyAdminIdName"
+          },
+          "lastTrainedAt": {
+            "description": "When the last training finished, ISO date-time. Null while a retrain runs or when never trained",
+            "readOnly": true,
+            "type": "string"
+          },
+          "trainingStatus": {
+            "description": "IN_PROGRESS, SUCCESS, FAILED or UNKNOWN",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "AnomalyDisplayClient": {
         "properties": {
           "anomalyCount": {
-            "description": "Total number of anomalies for this client across all statuses (mirrors AnomalyJobTracker.anomalyCount). Null if no anomaly tracker exists.",
+            "description": "Total number of anomalies for this client across all statuses (read from the anomalies the caller may see, not the tracker's persisted count). Null if no anomaly tracker exists, and always null from GET /anomalies/clients, which returns openAnomalyCount instead.",
             "format": "int32",
             "readOnly": true,
             "type": "integer"
@@ -7932,6 +8359,21 @@
         "readOnly": true,
         "type": "object"
       },
+      "AnomalyLimits": {
+        "description": "Learned limits, null for check types without them",
+        "properties": {
+          "lower": {
+            "readOnly": true,
+            "type": "number"
+          },
+          "upper": {
+            "readOnly": true,
+            "type": "number"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "AnomalyOverviewClient": {
         "properties": {
           "client": {
@@ -8001,6 +8443,21 @@
         "readOnly": true,
         "type": "object"
       },
+      "AnomalyRetrain": {
+        "properties": {
+          "startedAt": {
+            "description": "ISO date-time",
+            "readOnly": true,
+            "type": "string"
+          },
+          "trainingStatus": {
+            "description": "IN_PROGRESS once the retrain is submitted, FAILED when the training service refused it",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "AnomalyStatusUpdate": {
         "properties": {
           "items": {
@@ -8061,6 +8518,24 @@
             "description": "Date the subscription started",
             "readOnly": true,
             "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "AnomalyTrainingData": {
+        "description": "What the model was trained on, null when not recorded for the check type",
+        "properties": {
+          "monthCount": {
+            "description": "Months of history trained on, null when not recorded",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "postingCount": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -9924,7 +10399,7 @@
           "acceptors": {
             "description": "Who approved this payment.",
             "items": {
-              "$ref": "#/components/schemas/Employee"
+              "$ref": "#/components/schemas/PaymentActor"
             },
             "readOnly": true,
             "type": "array"
@@ -11717,6 +12192,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "canActivateDirectPosting": {
+            "description": "Whether the user may switch direct posting on for the company from the opt-in banner in automatic bank reconciliation: the company does not have it yet, has a bank integration, and the user has access to bank reconciliation.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "companyName": {
             "readOnly": true,
             "type": "string"
@@ -11894,7 +12374,7 @@
       "BankIdConsentResponseDTO": {
         "properties": {
           "enabled": {
-            "description": "Whether BankID signing was enabled or disabled",
+            "description": "The stored sign-with-BankID flag after this call. Unchanged while AutoPay still awaits the user's 2FA confirmation (redirectUrl set).",
             "readOnly": true,
             "type": "boolean"
           },
@@ -12008,7 +12488,11 @@
             "type": "string"
           },
           "endDate": {
-            "description": "The end date time of maintenance period.",
+            "description": "The day the merger window ends. Derived from endDateTime; accepted on create for older clients as midnight.",
+            "type": "string"
+          },
+          "endDateTime": {
+            "description": "End of the merger window (exclusive): from here the surviving bank takes over and the data move runs. Required unless endDate is given, which means midnight.",
             "type": "string"
           },
           "fromBanks": {
@@ -12022,7 +12506,11 @@
             "type": "integer"
           },
           "startDate": {
-            "description": "The start date time of maintenance period.",
+            "description": "The day the merger window starts. Derived from startDateTime; accepted on create for older clients as midnight.",
+            "type": "string"
+          },
+          "startDateTime": {
+            "description": "Start of the merger window: from here neither bank executes payments. Required unless startDate is given, which means midnight.",
             "type": "string"
           },
           "toBank": {
@@ -12081,6 +12569,11 @@
             },
             "readOnly": true,
             "type": "object"
+          },
+          "requiresBankIdToGrantPaymentAccess": {
+            "description": "Whether the login employee must verify with BankID before granting payment access.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "steps": {
             "items": {
@@ -12581,15 +13074,17 @@
             "type": "integer"
           },
           "employeesWithDirectRemitAccess": {
+            "description": "Employees with payment access",
             "items": {
-              "$ref": "#/components/schemas/Employee"
+              "$ref": "#/components/schemas/RemitEmployee"
             },
             "readOnly": true,
             "type": "array"
           },
           "employeesWithLimitedDirectRemitAccess": {
+            "description": "Employees with limited payment access",
             "items": {
-              "$ref": "#/components/schemas/Employee"
+              "$ref": "#/components/schemas/RemitEmployee"
             },
             "readOnly": true,
             "type": "array"
@@ -12623,7 +13118,8 @@
             "type": "boolean"
           },
           "signAutoPayWithBankId": {
-            "description": "Setting for whether the user should have the option to sign payments and agreements with Bank ID in addition to 2FA.",
+            "description": "Setting for whether the user should have the option to sign payments and agreements with Bank ID in addition to 2FA. Read-only here: AutoPay owns this setting, change it through PUT /bank/settings/signAutoPayWithBankId.",
+            "readOnly": true,
             "type": "boolean"
           },
           "taxBankAgreement": {
@@ -18185,6 +18681,11 @@
           "paidUpShareCapital": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
           },
+          "paidUpShareCapitalBeforeEvent": {
+            "description": "Paid-up share capital of the share class just before a reduce-shares event.",
+            "readOnly": true,
+            "type": "number"
+          },
           "reduceSharesAcquiringCompanyIsParent": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
           },
@@ -18234,6 +18735,9 @@
             "$ref": "#/components/schemas/ShareholderRegisterData"
           },
           "reduceSharesReductionOfPaidUpPremium": {
+            "$ref": "#/components/schemas/ShareholderRegisterData"
+          },
+          "reduceSharesReductionOfPaidUpShareCapital": {
             "$ref": "#/components/schemas/ShareholderRegisterData"
           },
           "reduceSharesReductionOfShareCapital": {
@@ -23062,6 +23566,7 @@
           "status": {
             "enum": [
               "NONE",
+              "FOLLOW_UP_STARTED",
               "SOFT_REMINDER",
               "REMINDER",
               "NOTICE_OF_DEBT_COLLECTION",
@@ -33204,6 +33709,14 @@
           "inbox": {
             "$ref": "#/components/schemas/GroupInboxCount"
           },
+          "notActivated": {
+            "description": "The absent columns the unit's modules account for, each with the page inside the unit where the module is switched on when the requesting employee may do so. INBOX, FOR_REVIEW and FOR_APPROVAL need the accounting module, and FOR_APPROVAL also needs attestation switched on under the unit's voucher settings. FOR_PAYMENT needs an active payment type and TRAVEL_AND_EXPENSE the travel-and-expense module. An absent column not listed here is closed by the granted roles or by a suspended account; a column closed by both a missing role and not being activated is not listed.",
+            "items": {
+              "$ref": "#/components/schemas/GroupInboxNotActivated"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
           "travelAndExpense": {
             "$ref": "#/components/schemas/GroupInboxCount"
           }
@@ -33222,6 +33735,42 @@
           },
           "url": {
             "description": "Link into the unit, carrying its contextId",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "GroupInboxNotActivated": {
+        "description": "The absent columns the unit's modules account for, each with the page inside the unit where the module is switched on when the requesting employee may do so. INBOX, FOR_REVIEW and FOR_APPROVAL need the accounting module, and FOR_APPROVAL also needs attestation switched on under the unit's voucher settings. FOR_PAYMENT needs an active payment type and TRAVEL_AND_EXPENSE the travel-and-expense module. An absent column not listed here is closed by the granted roles or by a suspended account; a column closed by both a missing role and not being activated is not listed.",
+        "properties": {
+          "activationUrl": {
+            "description": "The page inside the unit where the module is switched on, without contextId; absent when the requesting employee may not switch it on",
+            "readOnly": true,
+            "type": "string"
+          },
+          "column": {
+            "description": "The column closed by the module or setting not activated",
+            "enum": [
+              "INBOX",
+              "FOR_REVIEW",
+              "FOR_APPROVAL",
+              "FOR_PAYMENT",
+              "TRAVEL_AND_EXPENSE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "remedy": {
+            "description": "Where the module or setting not activated is switched on: PACKAGE, VOUCHER_SETTINGS, BANK_INTEGRATION or SALARY name a page inside the unit; SUPPORT means Tripletex switched the module off while the one it comes with stayed on, and only Tripletex switches it back on",
+            "enum": [
+              "PACKAGE",
+              "VOUCHER_SETTINGS",
+              "BANK_INTEGRATION",
+              "SALARY",
+              "SUPPORT"
+            ],
             "readOnly": true,
             "type": "string"
           }
@@ -33450,6 +33999,11 @@
               "type": "integer"
             },
             "type": "array"
+          },
+          "joinAdministeredCompanies": {
+            "default": true,
+            "description": "Join a company the sender administers directly instead of inviting it. False invites every company.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -33491,6 +34045,10 @@
           "ineligibility": {
             "readOnly": true,
             "type": "string"
+          },
+          "joined": {
+            "readOnly": true,
+            "type": "boolean"
           },
           "sent": {
             "readOnly": true,
@@ -34299,6 +34857,20 @@
         },
         "type": "object"
       },
+      "InboxChangeDescription": {
+        "properties": {
+          "description": {
+            "description": "New description",
+            "type": "string"
+          },
+          "id": {
+            "description": "voucherInboxId to rename",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "IncomeAndCostSummaryDTO": {
         "properties": {
           "accumulatedSurplusValues": {
@@ -34675,6 +35247,494 @@
         },
         "type": "object"
       },
+      "IncomingAppContext": {
+        "properties": {
+          "allowMultipleProjectInvoiceVat": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "allowPostingBeforeVoucherApproved": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "authAddBankAccountNumbers": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "authSendToLedger": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "automatedVouchersLast30Days": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "automaticallyPostWhenSaved": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserAccessAutomationPage": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserAccessProjects": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserAccessSuppliers": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserActivateModules": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserCreateIncomeVoucher": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserRegisterAdvancedVoucher": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserUpload": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserUseCustomsDeclaration": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserUseIncomingInvoiceBeta": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserUseInvoiceDetailed": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "canUserUseInvoiceSimple": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "companyAttestorCanOverride": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "companyCurrency": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "companyCurrencyId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "companyName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "contextId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "defaultChargeOnProject": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "dimension1InUse": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "dimension1Name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "dimension2InUse": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "dimension2Name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "dimension3InUse": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "dimension3Name": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "establishedCompany": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "expensePostingMode": {
+            "description": "How the company's supplier invoices book expense postings: PER_ORDER_LINE, SIMPLIFIED (one cost line per VAT type, no order-line tabs, FOX-442) or PER_COST_LINE (FOX-662).",
+            "enum": [
+              "PER_ORDER_LINE",
+              "SIMPLIFIED",
+              "PER_COST_LINE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "hasAutomation": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasBankAgreement": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasEfoNelfoInvoices": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasGoodsReceiptAccess": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleDepartmentAccounting": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleEmployee": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleFixedAssetRegister": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleLogistics": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleMultipleLedgers": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleProduct": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleProductAccounting": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleProject": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleProjectAccounting": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleQuantityHandling": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleVoucherApproval": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasModuleVoucherTypes": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasTaskFoxDeveloperAccess": {
+            "description": "Whether the logged-in user is a listed Task Fox team member. Per user, unlike the company-level inTaskFoxDeveloperMode.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasWarehouseColumn": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "hasWarehouseLocation": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inAttestationSupplierInvoicePilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inDeveloperMode": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inIncomingInvoiceOptInPilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inKrrAdvancedVoucherPilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inKrrGroupFeaturesPilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inNewVoucherMenuPilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inReactVoucherQueuePilot": {
+            "description": "Whether the company may register vouchers through the React voucher queue.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inTaskFoxDeveloperMode": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "incomingInvoiceAnomalyDetectionActive": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "incomingInvoicePilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isActiveAccountantProxy": {
+            "type": "boolean"
+          },
+          "isActiveAuditorProxy": {
+            "type": "boolean"
+          },
+          "isQualifiedForIncomingInvoicePilotOptIn": {
+            "type": "boolean"
+          },
+          "mainBankAccountId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "mainModule": {
+            "enum": [
+              "ACCOUNTING",
+              "INVOICE",
+              "CRM",
+              "PROJECT",
+              "WAGE",
+              "NETS_PRINT",
+              "NETS_PRINT_SALARY",
+              "OCR",
+              "REMIT",
+              "SMS_NOTIFICATION",
+              "VOUCHER_SCANNING",
+              "TIME_TRACKING",
+              "VVS_ELECTRO",
+              "UBEGRENSET_BILAG_VVS_ELEKTRO",
+              "INVOICE_OPTION_VIPPS",
+              "INVOICE_OPTION_EFAKTURA",
+              "INVOICE_OPTION_AVTALEGIRO",
+              "INVOICE_OPTION_PAPER",
+              "INVOICE_OPTION_AUTOINVOICE_OUTBOUND_EHF",
+              "API_V2",
+              "SMART_SCAN",
+              "BILAG_0_100_mikro",
+              "BILAG_0_500_vanlig_legacy",
+              "BILAG_501_1000_vanlig_legacy",
+              "BILAG_1001_2000_vanlig_legacy",
+              "BILAG_2001_3500_vanlig_legacy",
+              "BILAG_3501_5000_vanlig_legacy",
+              "BILAG_5001_10001_vanlig_legacy",
+              "UBEGRENSET_BILAG_vanlig_legacy",
+              "BILAG_0_500_prosjekt_legacy",
+              "BILAG_501_1000_prosjekt_legacy",
+              "BILAG_1001_2000_prosjekt_legacy",
+              "BILAG_2001_3500_prosjekt_legacy",
+              "BILAG_3501_5000_prosjekt_legacy",
+              "BILAG_5001_10001_prosjekt_legacy",
+              "UBEGRENSET_BILAG_prosjekt_legacy",
+              "MIKRO",
+              "MINI",
+              "MEDIUM",
+              "TOTAL",
+              "BASIS",
+              "SMART",
+              "AGRO_CLIENT",
+              "MAMUT",
+              "KOMPLETT",
+              "SMART_WAGE",
+              "SMART_TIME_TRACKING",
+              "BILAG_0_500",
+              "BILAG_501_1000",
+              "BILAG_1001_2000",
+              "BILAG_2001_3500",
+              "BILAG_3501_5000",
+              "BILAG_5001_10001",
+              "UBEGRENSET_BILAG",
+              "READ_ONLY_ACCESS",
+              "READ_ONLY_ACCESS_FREE",
+              "AUTOPAY",
+              "VOUCHER_APPROVAL",
+              "SMART_PROJECT",
+              "ACCOUNT_OFFICE",
+              "UNLIMITED_VOUCHER_ACCOUNT_OFFICE",
+              "COMPANY_SERVICE_FOR_PAYING_ACCOUNT_OFFICES",
+              "AGRO_WAGE",
+              "INVOICE_OPTION_AUTOINVOICE_INCOMING_EHF",
+              "MAMUT_PROJECT",
+              "MAMUT_WITH_WAGE",
+              "USER_SERVICE_HISTORIC_CUSTOMERS_NON_STANDARD",
+              "ENCRYPTED_PAYSLIP",
+              "AGRO_LICENCE",
+              "AGRO_DOCUMENT_CENTER",
+              "AGRO_INVOICE",
+              "FIVE_EMPLOYEES",
+              "AUTOPLUS_MINI",
+              "AUTOPLUS_MEDIUM",
+              "AUTOPLUS_STOR",
+              "CASH_CREDIT_APRILA",
+              "NO1TS",
+              "NO1TS_TRAVELREPORT",
+              "NO1TS_ACCOUNTING",
+              "AGRO_INVOICE_MIGRATED",
+              "USER_CATEGORY_1_LICENSE",
+              "USER_CATEGORY_2_LICENSE",
+              "USER_CATEGORY_3_LICENSE",
+              "VOUCHER_FACTORY",
+              "OCR_AUTOPAY",
+              "CLOSED_ACCOUNT",
+              "LOGISTICS",
+              "INTEGRATION_PARTNER",
+              "CREDIT_SCORING",
+              "ZTL",
+              "PLUSS",
+              "YEAR_END_REPORTING_ENK",
+              "YEAR_END_REPORTING_AS",
+              "BILAG_0_100_MIKRO_AUTOMATION",
+              "BILAG_0_500_AUTOMATION",
+              "BILAG_501_1000_AUTOMATION",
+              "BILAG_1001_2000_AUTOMATION",
+              "BILAG_2001_3500_AUTOMATION",
+              "BILAG_3501_5000_AUTOMATION",
+              "BILAG_5001_10001_AUTOMATION",
+              "UBEGRENSET_BILAG_AUTOMATION",
+              "CMA_SHOPIFY",
+              "CMA_MYSTORE",
+              "CMA_WOOCOMMERCE",
+              "RACKBEAT",
+              "DIYPACKAGE",
+              "YEAR_END_REPORTING_ANS",
+              "YEAR_END_REPORTING_DA",
+              "YEAR_END_REPORTING_STI",
+              "YEAR_END_REPORTING_ORG",
+              "YEAR_END_REPORTING_SA",
+              "YEAR_END_REPORTING_FLI",
+              "YEAR_END_REPORTING_NUF",
+              "PRIMARY_INDUSTRY",
+              "FIXED_ASSETS_REGISTER",
+              "STICOS",
+              "PRO",
+              "RECONCILIATION",
+              "DIGITAL_SIGNING",
+              "TRIPLETEX_MCP_BETA",
+              "INNBETALING_TOTAL",
+              "ANOMALY_DETECTION",
+              "FOLIO",
+              "MINI_50",
+              "MINI_150",
+              "VOUCHER_2027_500",
+              "VOUCHER_2027_1000",
+              "VOUCHER_2027_2000",
+              "VOUCHER_2027_4000",
+              "VOUCHER_2027_8000",
+              "VOUCHER_2027_UNLIMITED",
+              "VOUCHER_2027_500_AUTOMATION",
+              "VOUCHER_2027_1000_AUTOMATION",
+              "VOUCHER_2027_2000_AUTOMATION",
+              "VOUCHER_2027_4000_AUTOMATION",
+              "VOUCHER_2027_8000_AUTOMATION",
+              "VOUCHER_2027_UNLIMITED_AUTOMATION",
+              "BILAG_0_50_mini",
+              "BILAG_0_150_mini",
+              "BILAG_0_50_MINI_AUTOMATION",
+              "BILAG_0_150_MINI_AUTOMATION"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
+          "mainWarehouseId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "roundOffAccountId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "showApprovePayment": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showAttestation": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showClientInbox": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showFollowUp": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showGoToPayment": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showInbox": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showLastUpdated": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showRecentlyClosedProjectsOnSupplierInvoice": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "showUserSurveyBanner": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "tripletexStartDate": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "useSimplifiedSupplierInvoice": {
+            "description": "Whether the supplier-invoice page uses the simplified Basis/Mikro layout: one cost line per VAT type, no order-line tabs, no count or unit price (FOX-442). The frontend applies it only to invoices in MIRRORED cost-line mode.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "userReadOnly": {
+            "type": "boolean"
+          },
+          "voucherAttestationEnabled": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "voucherScanningEmail": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "IncomingInvoiceAccount": {
         "properties": {
           "currentAccountBook": {
@@ -34845,6 +35905,16 @@
             "readOnly": true,
             "type": "array"
           },
+          "canRegroupPostings": {
+            "description": "Whether a save that asks for a regroup books one expense posting per group of order lines.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "groupPostings": {
+            "description": "Whether a save books one expense posting per group of order lines.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "invoiceHeader": {
             "$ref": "#/components/schemas/IncomingInvoiceHeaderRead"
           },
@@ -34869,6 +35939,9 @@
           },
           "permissions": {
             "$ref": "#/components/schemas/IncomingInvoicePermissions"
+          },
+          "vendorSettings": {
+            "$ref": "#/components/schemas/IncomingInvoiceVendorSettings"
           },
           "voucherDocuments": {
             "description": "Documents linked to this invoice",
@@ -34898,6 +35971,10 @@
             "readOnly": true,
             "type": "array"
           },
+          "intercompany": {
+            "description": "Mark the invoice as intercompany: every order line gets the supplier's linked sister company as intercompanyId, and each posting inherits it when booked. Requires the supplier to be linked to a sister company and the group to be in the KrrGroupFeatures pilot. Omitted keeps the stored mark unless the supplier changes.",
+            "type": "boolean"
+          },
           "invoiceHeader": {
             "$ref": "#/components/schemas/IncomingInvoiceHeaderWrite"
           },
@@ -34913,6 +35990,13 @@
           },
           "purchaseOrderRelation": {
             "$ref": "#/components/schemas/PurchaseOrderRelationWrite"
+          },
+          "regroupPostings": {
+            "description": "Rebuild the grouped postings from the order lines instead of keeping the existing ones.",
+            "type": "boolean"
+          },
+          "vendorSettings": {
+            "$ref": "#/components/schemas/IncomingInvoiceVendorSettings"
           },
           "version": {
             "description": "Voucher version",
@@ -35200,6 +36284,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "intercompanyId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
           "name": {
             "readOnly": true,
             "type": "string"
@@ -35383,6 +36472,11 @@
             "format": "int64",
             "readOnly": true,
             "type": "integer"
+          },
+          "number": {
+            "nullable": true,
+            "readOnly": true,
+            "type": "string"
           }
         },
         "readOnly": true,
@@ -35924,6 +37018,11 @@
           "brregCompanyLookup": {
             "$ref": "#/components/schemas/BrregCompanyLookup"
           },
+          "canConvertToOldFormat": {
+            "description": "Whether the invoice can be opened in the old simple or detailed registration pages",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "changedAt": {
             "description": "Changed at",
             "readOnly": true,
@@ -35975,6 +37074,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "intercompany": {
+            "description": "True when the invoice is marked as intercompany with the supplier's linked sister company.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "invoiceLifeCycle": {
             "description": "Invoice Life Cycle.",
             "enum": [
@@ -36003,6 +37107,11 @@
           },
           "onAttestationFlow": {
             "type": "boolean"
+          },
+          "originalInvoiceNumber": {
+            "description": "The invoice number a structured import (EHF, EFO/NELFO) stated, where the number is the sender's own. Null for PDF, whose number is read off the document, and null when nothing was imported. A stored number that differs from this one was changed after import.",
+            "readOnly": true,
+            "type": "string"
           },
           "primaryIndustryVatPeriodClosed": {
             "description": "If vat period is closed for primary industries",
@@ -37290,6 +38399,26 @@
         "readOnly": true,
         "type": "object"
       },
+      "IncomingInvoiceVendorSettings": {
+        "description": "The order-lines settings of the header vendor. Null when the invoice has no vendor.",
+        "properties": {
+          "includeOrderLines": {
+            "description": "Whether order lines are included when the vendor's invoices are saved. On update, null keeps the stored value.",
+            "type": "boolean"
+          },
+          "showOrderLines": {
+            "description": "Whether the order-lines tab is shown for invoices from the vendor. On update, null keeps the stored value.",
+            "type": "boolean"
+          },
+          "vendorId": {
+            "description": "ID of the vendor the settings belong to.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "IncomingOrderLineExternalRead": {
         "description": "The invoice order lines.",
         "properties": {
@@ -37892,6 +39021,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "groupedDescription": {
+            "description": "Description of the cost line this order line is grouped into.",
+            "readOnly": true,
+            "type": "string"
+          },
           "originalOrderLineIds": {
             "description": "IDs of the original order lines from EHF/PDF import that this order line was derived from.",
             "items": {
@@ -37932,6 +39066,27 @@
             "format": "int32",
             "readOnly": true,
             "type": "integer"
+          },
+          "postingClosed": {
+            "description": "Whether the line's posting is in a close group, so it keeps its amount, account, VAT code and lines.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "postingId": {
+            "description": "ID of the posting this order line belongs to.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "postingLocked": {
+            "description": "Whether the line can't leave its posting: it is closed, or locked by a delivered VAT return and shared with other lines.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "postingVatLocked": {
+            "description": "Whether the line's posting is locked by a delivered VAT return, also when the line is alone on it, so no other line may join it.",
+            "readOnly": true,
+            "type": "boolean"
           },
           "productId": {
             "description": "ID of the product.",
@@ -38154,6 +39309,10 @@
             "description": "Free dimension 3 value id.",
             "format": "int64",
             "type": "integer"
+          },
+          "groupedDescription": {
+            "description": "Description of the cost line this order line is grouped into.",
+            "type": "string"
           },
           "originalOrderLineIds": {
             "description": "IDs of the original order lines from EHF/PDF import that this order line was derived from.",
@@ -41922,6 +43081,9 @@
       },
       "InvoiceOverviewMetaDTO": {
         "properties": {
+          "amiliSettings": {
+            "$ref": "#/components/schemas/AmiliSettings"
+          },
           "companyCountryId": {
             "format": "int32",
             "readOnly": true,
@@ -42337,6 +43499,10 @@
       },
       "InvoiceSettings": {
         "properties": {
+          "allowInvoiceDateAtPeriodStart": {
+            "description": "Whether recurring orders may date their invoice at the start of the billed period instead of the sending date",
+            "type": "boolean"
+          },
           "autoInvoicingHour": {
             "description": "Hour of day (0-23, Europe/Oslo) at which the automatic recurring invoicing job runs for this company",
             "format": "int32",
@@ -42408,6 +43574,19 @@
               "AUTOINVOICE_EHF_INCOMING",
               "PEPPOL_EHF_INCOMING"
             ],
+            "type": "string"
+          },
+          "ehfStatus": {
+            "description": "The company's EHF state. NOT_ACTIVE: EHF is not activated or has been deactivated. PENDING: the first activation is not confirmed by the access point yet. REJECTED: the activation was rejected; contact Tripletex support, activating again will not help. SEND_ONLY: sending is active, receiving is not. RECEIVE_PENDING: sending is active and the receive registration is accepted, but not active yet. SEND_AND_RECEIVE: sending and receiving are active. EHF is listed in sendTypes exactly when the state includes sending. Only returned by GET /invoice/settings, not in the PUT response.",
+            "enum": [
+              "NOT_ACTIVE",
+              "PENDING",
+              "REJECTED",
+              "SEND_ONLY",
+              "RECEIVE_PENDING",
+              "SEND_AND_RECEIVE"
+            ],
+            "readOnly": true,
             "type": "string"
           },
           "externalInvoiceNumber": {
@@ -42994,6 +44173,7 @@
               "REDUCE_SHARES_PARENT_COMPANY_NOMINAL_VALUE",
               "REDUCE_SHARES_REDUCTION_OF_SHARE_CAPITAL",
               "REDUCE_SHARES_REDUCTION_OF_PAID_UP_PREMIUM",
+              "REDUCE_SHARES_REDUCTION_OF_PAID_UP_SHARE_CAPITAL",
               "REDUCE_SHARES_SHAREHOLDER_NO_OF_SHARES_IN_EXIT",
               "REDUCE_SHARES_SHAREHOLDER_TOTAL_CONSIDERATION",
               "REDUCE_SHARES_SHAREHOLDER_RECIPIENT_PERSONAL_NO",
@@ -43062,6 +44242,7 @@
               "AttestationPilotBanners",
               "UseSpringAIForDocumentScan",
               "SilentAiInvoiceScan",
+              "SilentAiInvoiceScanWithoutSmartScan",
               "AiExpenseScanBackfill",
               "AiExpenseScanLive",
               "GlobalCache",
@@ -43151,6 +44332,8 @@
               "AprilaResilience",
               "MpsResilience",
               "BasepriceTransactionCountPrecompute",
+              "BasepriceRevenuePrecompute",
+              "BasepriceAutomationRatePrecompute",
               "BasepriceMeasuredTimeImport",
               "ArticleStartDateFiltering",
               "Inyett",
@@ -43161,13 +44344,16 @@
               "AssistantNews",
               "DisablePSCacheForScatterGather",
               "TaskFoxLegacyVoucherApprovalRollout",
+              "AteamSyncCompanyModulesRollout",
               "TaskFoxBuildDraftOnImports",
               "TaskFoxIncomingInvoiceAnomaly",
               "TaskFoxEhfForeignVatRate",
               "TaskFoxPdfForeignVatRate",
               "TaskFoxDownloadEhfOriginals",
+              "TaskFoxVendorNumberSequence",
               "TaskFoxVoucherAttachmentFolder",
               "TaskFoxReuseEhfImportDocuments",
+              "TaskFoxEhfTestDataDownload",
               "NewTargetUrlValidation",
               "AutoPayMigrator",
               "Spotlight2FA",
@@ -43189,8 +44375,6 @@
               "ChatModelGPT5Nano",
               "ChatModelGPT5Mini",
               "ChatModelGPT5",
-              "ChatModelClaudeSonnet4",
-              "ChatModelBedrockSonnet45",
               "ChatModelBedrockOpus45",
               "ChatModelBedrockHaiku45",
               "ChatModelBedrockOpus46",
@@ -43253,6 +44437,7 @@
               "KrrGeneralLedgerBackendImprovements",
               "GeneralLedgerCustomerVendorIndexHint",
               "GeneralLedgerEmployeeFreeDimensionIndexHint",
+              "KrrConsolidatedParallelQueries",
               "UseNewInternalChatQueries",
               "GlobalSearchCategoryFilters",
               "TRIP58841RunAll",
@@ -43276,6 +44461,7 @@
               "ProjectCategoryApiIsDeletablePrefetch",
               "ProjectApiOrderLineIndexHints",
               "WagePdfsNotifySqlFilter",
+              "AbsenceOpenEndedReminder",
               "TripletexMCPBeta",
               "TripletexMCPBetaEligible",
               "McpProxyLogin",
@@ -43289,7 +44475,6 @@
               "ProjectInvoicingDeferCustomerHydration",
               "InvoicePdfLogoRequestCache",
               "BankInAppVCLogin",
-              "BankTransactionQueryPrefetch",
               "BankReconciliationMatchEntriesPrefetch",
               "AutoPostingValidatedHistoryCache",
               "ReportEngineStripEntityPrefetch",
@@ -43342,13 +44527,25 @@
               "CompanyMultiStateModuleSystemNew",
               "ProjectClosureDriftCheck",
               "AmiliPostingListener",
+              "AmiliAutomaticFollowUp",
               "SalaryRunSpecificationExtraPrefetch",
               "SalaryUnionDeductionHistoryByWageCode",
               "ApiAccessAnnotationFilter",
               "AccountantClientAccessAuthorization",
+              "IncomingStockPurchaseOrderPrefetch",
+              "PaymentStatusChangeFlag",
               "AccountingOfficeClientAccessCheck",
+              "ProductBatchUpdateMapOnce",
+              "ProductDeleteListDeletablePrefetch",
               "ZtlPreviousTransactionIgnorePrimaryIndex",
-              "ProductHasSupplierProductConnectedPrefetch"
+              "ProductHasSupplierProductConnectedPrefetch",
+              "ProductGroupRelationProductPrefetch",
+              "ProductSearchSqlPageWithoutCount",
+              "SalaryImportReadsOnce",
+              "PauseTripletexOrderJob",
+              "SalaryValidEmployeesBatchReads",
+              "AutoPayPaymentListPrefetch",
+              "SalaryTravelExpenseWarningStateInSql"
             ],
             "readOnly": true,
             "type": "string"
@@ -43554,7 +44751,7 @@
           "voucherDocuments": {
             "description": "All documents linked to this voucher for PDF display",
             "items": {
-              "$ref": "#/components/schemas/VoucherDocument"
+              "$ref": "#/components/schemas/VoucherInboxDocument"
             },
             "readOnly": true,
             "type": "array"
@@ -45217,6 +46414,105 @@
           "values": {
             "items": {
               "$ref": "#/components/schemas/Anomaly"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseAnomalyAdminAnomaly": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyAdminAnomaly"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseAnomalyAdminIdName": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyAdminIdName"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ListResponseAnomalyCheckAdmin": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCheckAdmin"
             },
             "readOnly": true,
             "type": "array"
@@ -61818,6 +63114,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "securitySuspended": {
+            "description": "True when Tripletex has blocked the account for abuse rather than for unpaid invoices. There is no self-service way out of it: the customer must contact support.",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "subscriptionEndDate": {
             "readOnly": true,
             "type": "string"
@@ -61920,6 +63221,18 @@
             "type": "string"
           },
           "descriptionPart2": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "ehfReceiveAvailable": {
+            "description": "Send EHF only: whether receiving EHF can be activated together with sending. Null on every other service.",
+            "nullable": true,
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "ehfReceiveUnavailableText": {
+            "description": "Send EHF only: why receiving EHF cannot be activated together with sending, when ehfReceiveAvailable is false.",
+            "nullable": true,
             "readOnly": true,
             "type": "string"
           },
@@ -63123,6 +64436,7 @@
               "ABSENCE_APPROVED",
               "ABSENCE_DELETED_TO_EMPLOYEE",
               "ABSENCE_DELETED_TO_MANAGER",
+              "ABSENCE_MISSING_END_DATE",
               "BANK",
               "VOUCHER",
               "BUSINESS",
@@ -66287,7 +67601,7 @@
           "acceptors": {
             "description": "Who approved this payment.",
             "items": {
-              "$ref": "#/components/schemas/Employee"
+              "$ref": "#/components/schemas/PaymentActor"
             },
             "readOnly": true,
             "type": "array"
@@ -66561,6 +67875,44 @@
           },
           "version": {
             "format": "int32",
+            "type": "integer"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "PaymentActor": {
+        "description": "An employee who acted on a payment, for example by approving it.",
+        "properties": {
+          "companyId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "displayName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "firstName": {
+            "deprecated": true,
+            "description": "Use displayName. Only for mobile app versions that build the initials from it.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "lastName": {
+            "deprecated": true,
+            "description": "Use displayName. Only for mobile app versions that build the initials from it.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "pictureId": {
+            "format": "int32",
+            "readOnly": true,
             "type": "integer"
           }
         },
@@ -71850,6 +73202,14 @@
             "type": "string"
           },
           "accessHours": {
+            "enum": [
+              "NONE",
+              "READ",
+              "WRITE"
+            ],
+            "type": "string"
+          },
+          "accessNotes": {
             "enum": [
               "NONE",
               "READ",
@@ -77690,6 +79050,10 @@
             "readOnly": true,
             "type": "integer"
           },
+          "invoiceDateIsPeriodStart": {
+            "readOnly": true,
+            "type": "boolean"
+          },
           "invoicingRecurringInterval": {
             "enum": [
               "MONTHLY",
@@ -77762,6 +79126,10 @@
             "maximum": 24,
             "minimum": 1,
             "type": "integer"
+          },
+          "invoiceDateIsPeriodStart": {
+            "description": "Whether automatically sent invoices are dated the first day of the billed period instead of the send date. Only allowed when invoicing in advance, and not for a customer with single customer invoice.",
+            "type": "boolean"
           },
           "invoicingTimeCount": {
             "description": "Number of time units before/after the invoicing period start/end.",
@@ -78757,6 +80125,48 @@
           "url": {
             "readOnly": true,
             "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
+      "RemitEmployee": {
+        "description": "An employee with payment access.",
+        "properties": {
+          "companyId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "displayName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "email": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeNumber": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "firstName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "lastName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "pictureId": {
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
           }
         },
         "readOnly": true,
@@ -81227,6 +82637,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperAbsenceWorkingHours": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AbsenceWorkingHours"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperAccessStatus": {
         "properties": {
           "value": {
@@ -81583,6 +83001,30 @@
         },
         "type": "object"
       },
+      "ResponseWrapperAnomalyAdminAccess": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyAdminAccess"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAnomalyCheckAdmin": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyCheckAdmin"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAnomalyCheckStats": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyCheckStats"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperAnomalyComment": {
         "properties": {
           "value": {
@@ -81591,10 +83033,34 @@
         },
         "type": "object"
       },
+      "ResponseWrapperAnomalyCompanyCheck": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyCompanyCheck"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAnomalyCompanyChecks": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyCompanyChecks"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperAnomalyGroupDetail": {
         "properties": {
           "value": {
             "$ref": "#/components/schemas/AnomalyGroupDetail"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperAnomalyRetrain": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AnomalyRetrain"
           }
         },
         "type": "object"
@@ -83449,6 +84915,14 @@
         },
         "type": "object"
       },
+      "ResponseWrapperIncomingAppContext": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/IncomingAppContext"
+          }
+        },
+        "type": "object"
+      },
       "ResponseWrapperIncomingInvoiceAggregateExternalRead": {
         "properties": {
           "value": {
@@ -83509,6 +84983,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/IncomingInvoiceSaveResult"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperIncomingInvoiceVendorSettings": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/IncomingInvoiceVendorSettings"
           }
         },
         "type": "object"
@@ -84262,6 +85744,17 @@
           "value": {
             "items": {
               "$ref": "#/components/schemas/SharesAndSecurities"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperListStartFollowUpResult": {
+        "properties": {
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/StartFollowUpResult"
             },
             "type": "array"
           }
@@ -85985,6 +87478,14 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/RoleMetadataAggregate"
+          }
+        },
+        "type": "object"
+      },
+      "ResponseWrapperRoleProxyTemplate": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/RoleProxyTemplate"
           }
         },
         "type": "object"
@@ -88209,6 +89710,15 @@
             "readOnly": true,
             "type": "integer"
           },
+          "kind": {
+            "enum": [
+              "STANDARD",
+              "CUSTOM",
+              "EMPLOYEE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
           "name": {
             "readOnly": true,
             "type": "string"
@@ -88223,7 +89733,47 @@
             "type": "array"
           }
         },
-        "readOnly": true,
+        "type": "object"
+      },
+      "RoleProxyTemplateInput": {
+        "properties": {
+          "name": {
+            "description": "Unique within the company; leading and trailing spaces are dropped.",
+            "type": "string"
+          },
+          "roleIds": {
+            "description": "Role ids from the catalogue. Their dependencies are added; empty or absent grants no roles.",
+            "items": {
+              "description": "Role ids from the catalogue. Their dependencies are added; empty or absent grants no roles.",
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "RoleProxyTemplateName": {
+        "properties": {
+          "name": {
+            "description": "Unique within the company; leading and trailing spaces are dropped.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RoleProxyTemplateRoles": {
+        "properties": {
+          "roleIds": {
+            "description": "Role ids from the catalogue. Added with their dependencies, or removed with the roles that need them.",
+            "items": {
+              "description": "Role ids from the catalogue. Added with their dependencies, or removed with the roles that need them.",
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "RoleTemplate": {
@@ -91758,6 +93308,30 @@
         },
         "type": "object"
       },
+      "SameOrganizationNumberCard": {
+        "description": "The logged-in company's other customer cards with this card's organisation number that hold its client access.",
+        "properties": {
+          "customerId": {
+            "description": "The customer card's id.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "customerNumber": {
+            "description": "The customer number, 0 if it has none.",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "name": {
+            "description": "The name on the customer card.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "SchemaVersion": {
         "properties": {
           "checksum": {
@@ -93330,6 +94904,7 @@
               "REDUCE_SHARES_PARENT_COMPANY_NOMINAL_VALUE",
               "REDUCE_SHARES_REDUCTION_OF_SHARE_CAPITAL",
               "REDUCE_SHARES_REDUCTION_OF_PAID_UP_PREMIUM",
+              "REDUCE_SHARES_REDUCTION_OF_PAID_UP_SHARE_CAPITAL",
               "REDUCE_SHARES_SHAREHOLDER_NO_OF_SHARES_IN_EXIT",
               "REDUCE_SHARES_SHAREHOLDER_TOTAL_CONSIDERATION",
               "REDUCE_SHARES_SHAREHOLDER_RECIPIENT_PERSONAL_NO",
@@ -94672,6 +96247,11 @@
             "readOnly": true,
             "type": "integer"
           },
+          "exceededMessage": {
+            "description": "When start and end dates are given: the message a save of that absence would be refused with when the company enforces the statutory limits (isStatutoryLimitEnforced), worked out by the same rules as the save. Null when the absence keeps within its quota. The form shows it as an error only with the setting on; without it the warnings stay as they are.",
+            "readOnly": true,
+            "type": "string"
+          },
           "extraDays": {
             "description": "Sum of NAV-approved extra days for chronically ill/disabled children.",
             "format": "int32",
@@ -95066,6 +96646,47 @@
         "readOnly": true,
         "type": "object"
       },
+      "StartFollowUpRequest": {
+        "properties": {
+          "claimIsUndisputed": {
+            "description": "The user confirms the claims are undisputed",
+            "type": "boolean"
+          },
+          "invoiceIds": {
+            "description": "Invoices to send to debt collection",
+            "items": {
+              "description": "Invoices to send to debt collection",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "StartFollowUpResult": {
+        "properties": {
+          "invoiceId": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "message": {
+            "description": "Why the invoice was not sent; only set when status is FAILED",
+            "readOnly": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "STARTED",
+              "FAILED"
+            ],
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Status": {
         "properties": {
           "text": {
@@ -95081,7 +96702,7 @@
       "StatusLog": {
         "properties": {
           "actionCreator": {
-            "$ref": "#/components/schemas/Employee"
+            "$ref": "#/components/schemas/PaymentActor"
           },
           "actionDate": {
             "readOnly": true,
@@ -103010,6 +104631,74 @@
         },
         "type": "object"
       },
+      "TriggeredAnomaly": {
+        "description": "The newest anomalies of this check, newest first",
+        "properties": {
+          "amount": {
+            "description": "Flagged amount, null for check types without one",
+            "readOnly": true,
+            "type": "number"
+          },
+          "breach": {
+            "description": "UPPER or LOWER, null when not a limit breach",
+            "readOnly": true,
+            "type": "string"
+          },
+          "checkTriggeredCount": {
+            "description": "Anomalies the same trained check has raised",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "company": {
+            "$ref": "#/components/schemas/AnomalyAdminIdName"
+          },
+          "date": {
+            "description": "ISO date",
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/AnomalyLimits"
+          },
+          "postingCount": {
+            "description": "Postings the anomaly rolls up",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "status": {
+            "description": "AnomalyStatus enum name",
+            "readOnly": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "Norwegian title",
+            "readOnly": true,
+            "type": "string"
+          },
+          "training": {
+            "$ref": "#/components/schemas/AnomalyTrainingData"
+          },
+          "variantLabel": {
+            "description": "The Norwegian labels joined with a middle dot, null when it has none",
+            "readOnly": true,
+            "type": "string"
+          },
+          "visibility": {
+            "description": "VISIBLE, HIDDEN_GLOBALLY (global switch, no company setting) or HIDDEN_FOR_COMPANY (the company's setting is HIDDEN)",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
+        "type": "object"
+      },
       "Trip": {
         "properties": {
           "distance": {
@@ -103373,6 +105062,14 @@
             "readOnly": true,
             "type": "string"
           },
+          "otherCardsWithClientAccess": {
+            "description": "The logged-in company's other customer cards with this card's organisation number that hold its client access.",
+            "items": {
+              "$ref": "#/components/schemas/SameOrganizationNumberCard"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
           "tripletexSalesModuleTypes": {
             "description": "List containing the Tripletex sales modules types.",
             "items": {
@@ -103660,6 +105357,11 @@
           },
           "customerName": {
             "description": "The customer's name, as it appears on the customer card.",
+            "readOnly": true,
+            "type": "string"
+          },
+          "newInvoicingEffectiveFromDate": {
+            "description": "The first day this customer is invoiced on the new invoicing solution, when that is later than the migration date. Until then the customer is invoiced as before. Null when invoicing changed on the migration date itself.",
             "readOnly": true,
             "type": "string"
           },
@@ -105076,6 +106778,11 @@
             "readOnly": true,
             "type": "string"
           },
+          "employeeRegisteredDate": {
+            "description": "The day the employee was registered in the company. Ranks follow employeeId, so an employee registered earlier ranks ahead",
+            "readOnly": true,
+            "type": "string"
+          },
           "entitlementPath": {
             "description": "Where to change the employee's access. Only in the company's own context",
             "readOnly": true,
@@ -105172,6 +106879,11 @@
             "type": "integer"
           },
           "employeeName": {
+            "readOnly": true,
+            "type": "string"
+          },
+          "employeeRegisteredDate": {
+            "description": "The day the employee was registered in the company. Ranks follow employeeId, so an employee registered earlier ranks ahead",
             "readOnly": true,
             "type": "string"
           },
@@ -107446,7 +109158,7 @@
         "type": "object"
       },
       "VoucherDocument": {
-        "description": "All documents linked to this voucher for PDF display",
+        "description": "Documents linked to this voucher. Requested by naming voucherDocuments in 'fields'.",
         "properties": {
           "id": {
             "description": "Document ID",
@@ -107988,6 +109700,16 @@
             "readOnly": true,
             "type": "boolean"
           },
+          "expensePostingMode": {
+            "description": "How the company's supplier invoices book expense postings: PER_ORDER_LINE, SIMPLIFIED (one cost line per VAT type, no order-line tabs, FOX-442) or PER_COST_LINE (FOX-662).",
+            "enum": [
+              "PER_ORDER_LINE",
+              "SIMPLIFIED",
+              "PER_COST_LINE"
+            ],
+            "readOnly": true,
+            "type": "string"
+          },
           "hasAutomation": {
             "readOnly": true,
             "type": "boolean"
@@ -108082,6 +109804,10 @@
             "type": "boolean"
           },
           "inKrrAdvancedVoucherPilot": {
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "inKrrGroupFeaturesPilot": {
             "readOnly": true,
             "type": "boolean"
           },
@@ -108341,6 +110067,50 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "VoucherInboxDocument": {
+        "description": "All documents linked to this voucher for PDF display",
+        "properties": {
+          "id": {
+            "description": "Document ID",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "isAllowSendToInbox": {
+            "description": "Whether the document can be sent to inbox",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isDeletable": {
+            "description": "Whether the document can be deleted",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "isVoucher": {
+            "description": "Whether the document represents the voucher attachment",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "mimeType": {
+            "description": "MIME type of the document",
+            "readOnly": true,
+            "type": "string"
+          },
+          "size": {
+            "description": "Size of the document in bytes",
+            "format": "int32",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "title": {
+            "description": "Title of the document, usually the file name",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "readOnly": true,
         "type": "object"
       },
       "VoucherInboxItem": {
@@ -108752,7 +110522,7 @@
           "voucherDocuments": {
             "description": "All documents linked to this voucher for PDF display",
             "items": {
-              "$ref": "#/components/schemas/VoucherDocument"
+              "$ref": "#/components/schemas/VoucherInboxDocument"
             },
             "readOnly": true,
             "type": "array"
@@ -108764,6 +110534,44 @@
           }
         },
         "readOnly": true,
+        "type": "object"
+      },
+      "VoucherInboxListResponse": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "from": {
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "fullResultSize": {
+            "description": "Indicates whether there are more values available. Note: The value is not exact",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer"
+          },
+          "hasHiddenWageVouchers": {
+            "description": "True when vouchers holding wage information are left out because the user lacks access to wage information.",
+            "readOnly": true,
+            "type": "boolean"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/VoucherInboxItem"
+            },
+            "readOnly": true,
+            "type": "array"
+          },
+          "versionDigest": {
+            "description": "Used to know if the paginated list has changed.",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "VoucherInternal": {
@@ -112313,7 +114121,7 @@
           "acceptors": {
             "description": "Who approved this payment.",
             "items": {
-              "$ref": "#/components/schemas/Employee"
+              "$ref": "#/components/schemas/PaymentActor"
             },
             "readOnly": true,
             "type": "array"
@@ -113770,7 +115578,7 @@
             "tokenAuthScheme": []
           }
         ],
-        "summary": "[BETA] Delete most recent assets import.",
+        "summary": "Delete most recent assets import.",
         "tags": [
           "asset"
         ]
@@ -113931,7 +115739,7 @@
             "tokenAuthScheme": []
           }
         ],
-        "summary": "[BETA] Upload Excel file with Assets in the standard Tripletex defined format.",
+        "summary": "Upload Excel file with Assets in the standard Tripletex defined format.",
         "tags": [
           "asset"
         ]
@@ -129696,6 +131504,15 @@
             }
           },
           {
+            "description": "Only postings on this voucher. Use with from and count to page through large vouchers.",
+            "in": "query",
+            "name": "voucherId",
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
             "description": "From index",
             "in": "query",
             "name": "from",
@@ -145112,7 +146929,7 @@
                     "type": "boolean"
                   },
                   "importFreeDimensions": {
-                    "description": "Set the company's free dimensions on the vouchers from the file's analyses: an analysis type whose description is the name of an active free dimension, its values matched by number, then by name, and created when missing. Only for a package with free dimensions; ignored for SAF-T files before version 1.30.",
+                    "description": "Set the company's free dimensions on the vouchers from the file's analyses: an analysis type whose description is the name of an active free dimension, its values matched by number, then by name, and created when missing. Only for a package with free dimensions.",
                     "type": "boolean"
                   },
                   "importProjects": {
@@ -147568,6 +149385,7 @@
     },
     "/salary/transaction": {
       "post": {
+        "deprecated": true,
         "operationId": "SalaryTransaction_post",
         "parameters": [
           {
@@ -147608,7 +149426,7 @@
             "tokenAuthScheme": []
           }
         ],
-        "summary": "Create a new salary transaction.",
+        "summary": "[DEPRECATED] Create a new salary transaction.",
         "tags": [
           "salary/transaction"
         ]
@@ -147704,7 +149522,7 @@
             "tokenAuthScheme": []
           }
         ],
-        "summary": "[BETA] Create a new salary run for the given employees. Payslips are created with Tripletex's automatically calculated salary lines, which are recalculated as lines are added. Use :addPayslip to add an employee with several employments in the period. Tax deductions are always calculated.",
+        "summary": "[BETA] Create a new salary run for the given employees. Payslips are created with Tripletex's automatically calculated salary lines, which are recalculated as lines are added. Use :addPayslip to add an individual employee to the salary transaction. Tax deductions are always calculated.",
         "tags": [
           "salary/transaction"
         ]
