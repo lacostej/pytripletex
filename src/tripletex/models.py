@@ -552,6 +552,36 @@ class SalaryDraft(BaseModel):
         return [p for p in self.salary_payments if p.blocking_problems]
 
 
+class SalaryTransaction(BaseModel):
+    """One row of the salary overview: a run, booked or still a draft.
+
+    From `/v2/tsk/salaryv2/overview/transactions`, captured 2026-11-02. A draft
+    carries `voucherId: 0` (not null) and displayName "Salary payment (under
+    process)"; a booked run carries the voucher's id and "Salary voucher 15-2026".
+    """
+
+    id: int
+    year: Optional[int] = None
+    month: Optional[int] = None
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+    period: Optional[str] = Field(default=None, alias="datePeriod")
+    voucher_date: Optional[datetime.date] = Field(default=None, alias="voucherDate")
+    payment_date: Optional[datetime.date] = Field(default=None, alias="paymentDate")
+    voucher_id: Optional[int] = Field(default=None, alias="voucherId")
+    voucher_number: Optional[str] = Field(default=None, alias="voucherNumberAsString")
+    comment: Optional[str] = None
+    is_historical: bool = Field(default=False, alias="isHistorical")
+    is_reversed: bool = Field(default=False, alias="isReversed")
+    #: Gross pay subject to employer's tax; on a draft, the imported CSV's total.
+    eni_basis: Optional[Decimal] = Field(default=None, alias="eniBasis")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @property
+    def is_booked(self) -> bool:
+        return bool(self.voucher_id)
+
+
 class ImportedFile(BaseModel):
     """A file staged by the upload endpoint, ready to be referenced by an import."""
 

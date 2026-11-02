@@ -451,3 +451,59 @@ class TestImportRejection:
               "url": "/execute/salary?salaryTransactionId=7588616"}])}}
 
         assert await self._import(ok, tmp_path) == 7588616
+
+
+# Shapes from /v2/tsk/salaryv2/overview/transactions, captured 2026-11-02.
+_OVERVIEW_DRAFT = {
+    "id": 7742877, "year": 2026, "month": 10, "datePeriod": "October 2026",
+    "displayName": "Salary payment (under process)", "voucherDate": "2026-11-05",
+    "paymentDate": None, "voucherId": 0, "voucherNumberAsString": None,
+    "completedLogId": 0, "comment": "Odins", "eniBasis": 161558.9,
+    "isHistorical": False, "isReversed": False, "approvedBy": None,
+}
+_OVERVIEW_BOOKED = {
+    **_OVERVIEW_DRAFT, "id": 7646480, "month": 9, "datePeriod": "September 2026",
+    "displayName": "Salary voucher 15-2026", "voucherDate": "2026-10-05",
+    "paymentDate": "2026-10-05", "voucherId": 687560232,
+    "voucherNumberAsString": "500810-2026", "completedLogId": 7408769215,
+}
+
+
+class TestOverview:
+    def _overview(self, rows, seen):
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            start = int(request.url.params["from"])
+            count = int(request.url.params["count"])
+            page = rows[start:start + count]
+            return httpx.Response(200, json={
+                "from": start, "count": len(page), "values": page,
+                "fullResultSize": min(len(rows), count) + 1})
+        return _web(handler)
+
+    async def test_a_draft_is_told_from_a_booked_run(self):
+        """A draft's voucherId is 0, not null: test the value, not the key."""
+        seen = []
+        client = self._overview([_OVERVIEW_DRAFT, _OVERVIEW_BOOKED], seen)
+        draft, booked = await salary.list_salary_transactions(
+            client, datetime.date(2026, 10, 1), datetime.date(2026, 11, 30))
+
+        assert not draft.is_booked and draft.voucher_id == 0
+        assert (draft.year, draft.month, draft.voucher_date) == (
+            2026, 10, datetime.date(2026, 11, 5))
+        assert draft.eni_basis == Decimal("161558.9")
+        assert booked.is_booked and booked.voucher_number == "500810-2026"
+        assert seen[0].url.path == "/v2/tsk/salaryv2/overview/transactions"
+        assert seen[0].url.params["startDate"] == "2026-10-01"
+        assert seen[0].url.params["endDate"] == "2026-11-30"
+
+    async def test_every_page_is_read(self):
+        rows = [{**_OVERVIEW_BOOKED, "id": n} for n in range(250)]
+        found = await salary.list_salary_transactions(
+            self._overview(rows, []), datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))
+        assert [t.id for t in found] == list(range(250))
+
+    async def test_it_needs_a_web_session(self):
+        with pytest.raises(WebSessionRequired):
+            await salary.list_salary_transactions(
+                _api(_value([])), datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))

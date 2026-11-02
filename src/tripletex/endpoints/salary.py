@@ -32,7 +32,8 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tripletex.models import ImportedFile, SalaryDraft, SalaryPaymentDraft
+from tripletex.endpoints._paging import paginate
+from tripletex.models import ImportedFile, SalaryDraft, SalaryPaymentDraft, SalaryTransaction
 from tripletex.session import require_web_session
 
 if TYPE_CHECKING:
@@ -80,6 +81,25 @@ class SalaryImportRejected(RuntimeError):
     Rejections arrive as a JSON-RPC `error` at HTTP 200, so nothing about the
     status code distinguishes this from success.
     """
+
+
+async def list_salary_transactions(
+    client: TripletexClient, start: date, end: date
+) -> list[SalaryTransaction]:
+    """Every salary run with a voucher date in [start, end], drafts included.
+
+    GET /v2/tsk/salaryv2/overview/transactions, the UI's salary overview. The
+    range filters on **voucher date**, not period: a run for October dated
+    2026-11-05 is found only by a range covering November. Drafts come first,
+    then booked runs oldest first. `SalaryTransaction.is_booked` tells them apart.
+    """
+    require_web_session(client.session, "Salary overview")
+    rows = await paginate(
+        client, f"{_V2}/overview/transactions",
+        params={"startDate": start.isoformat(), "endDate": end.isoformat(), "fields": "*"},
+        page_size=100,
+    )
+    return [SalaryTransaction.model_validate(r) for r in rows]
 
 
 async def get_salary_draft(
