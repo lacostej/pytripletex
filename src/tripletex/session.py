@@ -111,6 +111,22 @@ class CompanyMismatch(AuthUnavailable):
         self.actual = actual
 
 
+class MissingCredentials(AuthUnavailable, ValueError):
+    """The chosen auth mode needs settings the config does not have.
+
+    Also a ValueError, which is what this was raised as before.
+    """
+
+    def __init__(self, fields: list[str], purpose: str, env_name: str | None = None) -> None:
+        section = env_name or "default"
+        super().__init__(
+            f"{purpose} needs {' and '.join(fields)}, which config section "
+            f"'{section}' does not set (nor do the TRIPLETEX_* environment variables)."
+        )
+        self.fields = fields
+        self.env_name = env_name
+
+
 class WebSessionRequired(AuthUnavailable):
     """An operation needs cookie/context auth that API tokens cannot provide.
 

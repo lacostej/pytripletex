@@ -27,7 +27,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tripletex.parsers.js import extract_csrf_token, extract_js_redirect_url
-from tripletex.session import TWO_STEP_COOKIES, InteractiveLoginRequired, WebSession
+from tripletex.session import TWO_STEP_COOKIES, InteractiveLoginRequired, MissingCredentials, WebSession
 
 if TYPE_CHECKING:
     from tripletex.config import TripletexConfig
@@ -157,10 +157,9 @@ async def start_login(
         WebSession — if no MFA is required (login complete, or device trusted)
         LoginState — if MFA is required (call complete_login next)
     """
-    if not config.username:
-        raise ValueError("username required for Visma Connect login")
-    if not config.password_visma:
-        raise ValueError("password_visma required for Visma Connect login")
+    missing = [f for f in ("username", "password_visma") if not getattr(config, f)]
+    if missing:
+        raise MissingCredentials(missing, "Visma Connect login", config.env_name)
 
     own_client = http is None
     if http is None:
@@ -362,10 +361,9 @@ async def visma_connect_login(
     trusted-device cookie, this completes without prompting — which is what lets
     a scheduled job repair its own session instead of waiting for a human.
     """
-    if not config.username:
-        raise ValueError("username required for Visma Connect login")
-    if not config.password_visma:
-        raise ValueError("password_visma required for Visma Connect login")
+    missing = [f for f in ("username", "password_visma") if not getattr(config, f)]
+    if missing:
+        raise MissingCredentials(missing, "Visma Connect login", config.env_name)
 
     own_client = http is None
     if http is None:

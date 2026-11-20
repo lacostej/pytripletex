@@ -16,6 +16,7 @@ from tripletex.session import (
     ApiSession,
     AuthUnavailable,
     CompanyMismatch,
+    MissingCredentials,
     Session,
     SessionExpired,
     SessionStatus,
@@ -136,8 +137,9 @@ class TripletexClient:
         """Authenticate via official API tokens."""
         from tripletex.auth.api_token import create_api_session
 
-        if not self.config.consumer_token or not self.config.employee_token:
-            raise ValueError("consumer_token and employee_token required for API auth")
+        missing = [f for f in ("consumer_token", "employee_token") if not getattr(self.config, f)]
+        if missing:
+            raise MissingCredentials(missing, "API auth", self.config.env_name)
 
         self._session = await create_api_session(
             base_url=self.config.base_url,
