@@ -4,7 +4,7 @@ import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Companies ---
@@ -1055,6 +1055,22 @@ class EmployeeAccess(BaseModel):
 # --- Customers (API) ---
 
 
+class CustomerBankAccount(BaseModel):
+    """One entry of a customer's `bankAccountPresentation`."""
+
+    iban: Optional[str] = None
+    bban: Optional[str] = None
+    bic: Optional[str] = None
+    country: Optional[dict] = None
+    provider: Optional[str] = None  # NETS or AUTOPAY
+
+    model_config = {"extra": "allow"}
+
+    @property
+    def country_id(self) -> Optional[int]:
+        return (self.country or {}).get("id")
+
+
 class Customer(BaseModel):
     id: Optional[int] = None
     name: str = ""
@@ -1064,8 +1080,17 @@ class Customer(BaseModel):
     is_customer: bool = Field(default=True, alias="isCustomer")
     is_supplier: bool = Field(default=False, alias="isSupplier")
     customer_number: Optional[int] = Field(default=None, alias="customerNumber")
+    # The deprecated `bankAccounts` (Norwegian numbers only) is left in model_extra.
+    bank_accounts: list[CustomerBankAccount] = Field(
+        default_factory=list, alias="bankAccountPresentation"
+    )
 
     model_config = {"populate_by_name": True, "extra": "allow"}
+
+    @field_validator("bank_accounts", mode="before")
+    @classmethod
+    def _null_is_empty(cls, value):
+        return [] if value is None else value
 
 
 # --- Products (API) ---

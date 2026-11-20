@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from tripletex.models import Employee, EmployeeAccess, EmployeeOverview
+from tripletex.models import Customer, Employee, EmployeeAccess, EmployeeOverview
 
 
 def _employee(**employments) -> Employee:
@@ -85,3 +85,35 @@ class TestPayslipDelivery:
                 {"id": 1, "deliveryMethodWageSlipString": value}
             )
             assert row.payslip_via_app is False
+
+
+class TestCustomerBankAccounts:
+    def test_parses_bank_account_presentation(self):
+        customer = Customer.model_validate(
+            {
+                "id": 1,
+                "name": "Example AS",
+                "bankAccounts": [],
+                "bankAccountPresentation": [
+                    {
+                        "iban": "NO0000000000000",
+                        "bban": "00000000000",
+                        "bic": "EXAMPLEX",
+                        "country": {"id": 161, "url": "tripletex.no/v2/country/161"},
+                        "provider": "AUTOPAY",
+                    }
+                ],
+            }
+        )
+
+        [account] = customer.bank_accounts
+        assert account.bban == "00000000000"
+        assert account.iban == "NO0000000000000"
+        assert account.bic == "EXAMPLEX"
+        assert account.country_id == 161
+        assert account.provider == "AUTOPAY"
+        assert customer.model_extra == {"bankAccounts": []}
+
+    def test_absent_or_null_is_empty(self):
+        assert Customer.model_validate({"id": 1}).bank_accounts == []
+        assert Customer.model_validate({"id": 1, "bankAccountPresentation": None}).bank_accounts == []
