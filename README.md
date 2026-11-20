@@ -201,6 +201,9 @@ tripletex --env other login
 ### Commands
 
 ```bash
+# Every command and option as JSON, for scripts and agents (or one command's)
+tripletex help --json [vouchers list]
+
 # Login (interactive MFA prompt, persists session to ~/.tripletex/)
 tripletex login
 

@@ -1179,6 +1179,69 @@ def api(ctx, method, path, body, paginate, yes):
         click.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
 
+HELP_JSON_VERSION = 1
+
+
+def _describe_param(info: dict) -> dict:
+    out = {"name": info["name"], "kind": info["param_type_name"], "type": info["type"]["name"]}
+    if info["opts"] and info["param_type_name"] == "option":
+        out["opts"] = info["opts"] + info["secondary_opts"]
+    if "choices" in info["type"]:
+        out["choices"] = list(info["type"]["choices"])
+    for key in ("required", "multiple", "is_flag"):
+        if info.get(key):
+            out[key] = True
+    if info.get("default") is not None and not (info.get("is_flag") and info["default"] is False):
+        out["default"] = info["default"]
+    for key in ("envvar", "help"):
+        if info.get(key):
+            out[key] = info[key]
+    return out
+
+
+def _describe_command(info: dict) -> dict:
+    # \b is Click's "don't rewrap" marker, meaningless outside the terminal.
+    help_text = "\n".join(line for line in (info.get("help") or "").splitlines() if line != "\b")
+    out = {"name": info["name"], "help": help_text.strip()}
+    params = [_describe_param(p) for p in info["params"] if p["name"] != "help" and not p.get("hidden")]
+    if params:
+        out["params"] = params
+    if "commands" in info:
+        out["commands"] = [
+            _describe_command(c) for c in info["commands"].values() if not c.get("hidden")
+        ]
+    return out
+
+
+@cli.command("help")
+@click.argument("command", nargs=-1)
+@click.option("--json", "as_json", is_flag=True, help="Print the commands and their options as JSON")
+@click.pass_context
+def help_(ctx, command, as_json):
+    """Show help for the CLI or one command, as text or JSON.
+
+    \b
+      tripletex help vouchers list
+      tripletex help --json
+      tripletex help --json vouchers list
+    """
+    import json
+
+    target = ctx.find_root()
+    for name in command:
+        sub = target.command.get_command(target, name) if isinstance(target.command, click.Group) else None
+        if sub is None:
+            raise click.UsageError(f"No such command: {' '.join(command)}")
+        target = click.Context(sub, info_name=name, parent=target)
+
+    if not as_json:
+        click.echo(target.get_help())
+        return
+    described = _describe_command(target.command.to_info_dict(target))
+    described["name"] = target.command_path
+    click.echo(json.dumps({"version": HELP_JSON_VERSION, **described}, separators=(",", ":")))
+
+
 cli.add_command(reconciliation)
 cli.add_command(payments)
 cli.add_command(vouchers)
