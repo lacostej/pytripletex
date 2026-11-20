@@ -243,6 +243,12 @@ tripletex order get 12345
 
 # Invoices
 tripletex invoice list --from 2026-01-01 --to 2026-03-31
+
+# Any endpoint: one request, JSON on stdout, errors on stderr (exit 1)
+tripletex api GET "/v2/employee?fields=id,firstName"
+tripletex api GET /v2/customer --paginate          # every page, as {count, values}
+tripletex --auth web api GET /v2/internal/company-chooser
+tripletex api PUT /v2/customer/123 --body @customer.json --yes  # writes need --yes
 ```
 
 > **Date ranges are half-open `[from, to)`** — `--from` is inclusive, `--to` is

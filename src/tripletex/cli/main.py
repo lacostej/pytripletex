@@ -1078,6 +1078,107 @@ def invoice_list(ctx, from_date, to_date):
     run_async(_list())
 
 
+API_METHODS = ("GET", "POST", "PUT", "DELETE")
+
+
+def _api_error_message(response) -> str:
+    """Tripletex's ApiError as text: message, validation messages, request id."""
+    try:
+        error = response.json()
+    except ValueError:
+        error = None
+    if not isinstance(error, dict) or not error.get("message"):
+        return f"Tripletex responded with {response.status_code}: {response.text}"
+    lines = [f"{response.status_code}: {error['message']}"]
+    for v in error.get("validationMessages") or []:
+        lines.append(f"  {v.get('field') or '-'}: {v.get('message')}")
+    if error.get("requestId"):
+        lines.append(f"requestId: {error['requestId']}")
+    return "\n".join(lines)
+
+
+def _parse_api_body(body: str):
+    import json
+    from pathlib import Path
+
+    try:
+        text = Path(body[1:]).read_text() if body.startswith("@") else body
+        return json.loads(text)
+    except OSError as e:
+        raise click.UsageError(f"Cannot read --body file: {e}") from e
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--body is not valid JSON: {e}") from e
+
+
+@cli.command("api")
+@click.argument("method")
+@click.argument("path")
+@click.option("--body", default=None, help="JSON request body, or @file to read it from a file")
+@click.option("--paginate", is_flag=True, help="GET every page of a list endpoint and print {count, values}")
+@click.option("--yes", is_flag=True, help="Confirm a write (POST, PUT, DELETE)")
+@click.pass_context
+def api(ctx, method, path, body, paginate, yes):
+    """Send one request to the Tripletex API and print its JSON response.
+
+    Uses the same auth as every other command, so /v2/internal/* routes work
+    under web auth. Only the response goes to stdout.
+
+    \b
+      tripletex api GET "/v2/employee?fields=id,firstName"
+      tripletex api GET /v2/customer --paginate
+      tripletex api PUT /v2/customer/123 --body @customer.json --yes
+    """
+    import json
+
+    import httpx
+
+    from tripletex.endpoints._paging import paginate as paginate_rows
+
+    method = method.upper()
+    if method not in API_METHODS:
+        raise click.UsageError(f"Unsupported method '{method}', use one of {', '.join(API_METHODS)}")
+    # The credentials go to whatever host the URL names: "//host/x" resolves off-site too.
+    base = httpx.URL(ctx.obj["config"].base_url)
+    if not path.startswith("/") or path.startswith("//") or base.join(path).host != base.host:
+        raise click.UsageError("Pass a path such as /v2/employee, not a full URL")
+    if paginate and method != "GET":
+        raise click.UsageError("--paginate only applies to GET")
+    if body is not None and method in ("GET", "DELETE"):
+        raise click.UsageError(f"{method} takes no --body")
+    if method != "GET" and not yes:
+        raise click.UsageError(f"{method} writes to Tripletex; pass --yes to confirm")
+    json_body = _parse_api_body(body) if body is not None else None
+
+    async def _api():
+        async with _client(ctx) as client:
+            try:
+                if paginate:
+                    url = httpx.URL(path)
+                    params = dict(url.params.multi_items())
+                    if len(params) != len(url.params.multi_items()):
+                        raise click.UsageError("--paginate does not support repeated query parameters")
+                    if "from" in params or "count" in params:
+                        raise click.UsageError("--paginate sets from and count itself")
+                    rows = await paginate_rows(client, url.path, params=params)
+                    if not rows and "values" not in await client.get_json(url.path, params=params):
+                        raise click.UsageError(f"{url.path} is not a list endpoint; drop --paginate")
+                    return {"count": len(rows), "values": rows}
+                response = await client._request(method, path, json_body=json_body)
+            except httpx.HTTPStatusError as e:
+                raise click.ClickException(_api_error_message(e.response)) from e
+            if not response.content:
+                return None
+            try:
+                return response.json()
+            except ValueError:
+                content_type = response.headers.get("content-type", "unknown")
+                raise click.ClickException(f"Response is {content_type}, not JSON") from None
+
+    result = run_async(_api())
+    if result is not None:
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+
 cli.add_command(reconciliation)
 cli.add_command(payments)
 cli.add_command(vouchers)
